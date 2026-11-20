@@ -28,6 +28,7 @@ $currentUser = getCurrentUser();
 $logId = (int)($input['log_id'] ?? 0);
 $remarks = trim($input['remarks'] ?? '');
 $referenceUrls = trim($input['reference_urls'] ?? '');
+$loggedAtInput = trim($input['logged_at'] ?? '');
 
 if ($logId <= 0) {
     jsonResponse(['success' => false, 'message' => 'Valid Log ID is required.'], 422);
@@ -72,17 +73,29 @@ if (!$canEdit) {
 }
 
 try {
-    $stmtUpdate = $pdo->prepare('
-        UPDATE task_process_logs
-        SET remarks = :remarks,
-            reference_urls = :reference_urls
-        WHERE log_id = :id
-    ');
-    $stmtUpdate->execute([
+    $updateFields = [
+        'remarks = :remarks',
+        'reference_urls = :reference_urls'
+    ];
+    $params = [
         ':remarks'        => $remarks,
         ':reference_urls' => !empty($referenceUrls) ? $referenceUrls : null,
         ':id'             => $logId
-    ]);
+    ];
+
+    if (!empty($loggedAtInput)) {
+        try {
+            $dt = new DateTime($loggedAtInput);
+            $updateFields[] = 'logged_at = :logged_at';
+            $params[':logged_at'] = $dt->format('Y-m-d H:i:s');
+        } catch (Exception $e) {
+            // ignore invalid date
+        }
+    }
+
+    $setClause = implode(', ', $updateFields);
+    $stmtUpdate = $pdo->prepare("UPDATE task_process_logs SET $setClause WHERE log_id = :id");
+    $stmtUpdate->execute($params);
 
     jsonResponse([
         'success'        => true,

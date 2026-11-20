@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initDatePickers();
   initModals();
   initLightbox();
+  initMobileNav();
 });
 
 /**
@@ -44,10 +45,55 @@ function initDatePickers(container = document) {
       allowInput: true,
       static: false,
       disableMobile: true,
+      closeOnSelect: false,
       onReady: function(selectedDates, dateStr, instance) {
         // Match parent container
         if (instance.altInput) {
           instance.altInput.style.paddingRight = '2.75rem';
+        }
+
+        // Add Apply footer bar to Flatpickr calendar container
+        if (!instance.calendarContainer.querySelector('.flatpickr-footer-bar')) {
+          const footerBar = document.createElement('div');
+          footerBar.className = 'flatpickr-footer-bar';
+
+          // "Today" quick shortcut button
+          const todayBtn = document.createElement('button');
+          todayBtn.type = 'button';
+          todayBtn.className = 'flatpickr-action-btn flatpickr-btn-today';
+          todayBtn.innerHTML = `
+            <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            Today
+          `;
+          todayBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            instance.setDate(new Date(), true);
+          });
+
+          // "Apply" confirmation button
+          const applyBtn = document.createElement('button');
+          applyBtn.type = 'button';
+          applyBtn.className = 'flatpickr-action-btn flatpickr-btn-apply';
+          applyBtn.innerHTML = `
+            <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M5 13l4 4L19 7"/></svg>
+            Apply
+          `;
+          applyBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (instance.selectedDates.length === 0) {
+              instance.setDate(new Date(), true);
+            }
+            if (instance.input) {
+              instance.input.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            instance.close();
+          });
+
+          footerBar.appendChild(todayBtn);
+          footerBar.appendChild(applyBtn);
+          instance.calendarContainer.appendChild(footerBar);
         }
       }
     };
@@ -150,6 +196,9 @@ function closeModal(modalId) {
   if (modal) {
     modal.classList.remove('active');
     document.body.style.overflow = '';
+    if (modalId === 'modalUpdateStage') {
+      clearStagedEvidenceFiles();
+    }
   }
 }
 
@@ -254,8 +303,18 @@ function openStageModal(task) {
   document.getElementById('stage_remarks').value = '';
   const refInput = document.getElementById('stage_reference_urls');
   if (refInput) refInput.value = '';
-  document.getElementById('evidence_files').value = '';
-  document.getElementById('mediaPreviewContainer').innerHTML = '';
+  const stageDateInput = document.getElementById('stage_logged_at');
+  if (stageDateInput) {
+    if (stageDateInput._flatpickr) {
+      stageDateInput._flatpickr.setDate(new Date(), true);
+    } else {
+      initDatePickers(document.getElementById('modalUpdateStage'));
+      if (stageDateInput._flatpickr) {
+        stageDateInput._flatpickr.setDate(new Date(), true);
+      }
+    }
+  }
+  clearStagedEvidenceFiles();
   toggleBudgetFields(stageSelect.value === 'BUDGET_PENDING');
 
   openModal('modalUpdateStage');
@@ -279,35 +338,192 @@ document.addEventListener('change', (e) => {
   }
 });
 
-// File upload preview listener
+/**
+ * ------------------------------------------------------------------------
+ * Multi-File Evidence Staging & Dropzone Manager
+ * ------------------------------------------------------------------------
+ */
+let stagedEvidenceFiles = [];
+
+function clearStagedEvidenceFiles() {
+  stagedEvidenceFiles.forEach(item => {
+    if (item.previewUrl) {
+      URL.revokeObjectURL(item.previewUrl);
+    }
+  });
+  stagedEvidenceFiles = [];
+  const preview = document.getElementById('mediaPreviewContainer');
+  if (preview) preview.innerHTML = '';
+  const fileInput = document.getElementById('evidence_files');
+  if (fileInput) fileInput.value = '';
+}
+window.clearStagedEvidenceFiles = clearStagedEvidenceFiles;
+
+function addStagedFiles(fileList) {
+  if (!fileList || fileList.length === 0) return;
+  
+  const allowedExts = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov'];
+  let addedCount = 0;
+
+  Array.from(fileList).forEach(file => {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!allowedExts.includes(ext)) {
+      showToast(`Skipped "${file.name}": Unsupported format. Allowed: JPG, PNG, WEBP, MP4, MOV`, 'warning');
+      return;
+    }
+
+    // Check duplicate by name + size + lastModified
+    const isDup = stagedEvidenceFiles.some(item => 
+      item.file.name === file.name && item.file.size === file.size && item.file.lastModified === file.lastModified
+    );
+    if (isDup) return;
+
+    let previewUrl = null;
+    if (file.type.startsWith('image/')) {
+      previewUrl = URL.createObjectURL(file);
+    }
+
+    stagedEvidenceFiles.push({
+      file: file,
+      previewUrl: previewUrl,
+      id: 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
+    });
+    addedCount++;
+  });
+
+  if (addedCount > 0) {
+    renderStagedFilesPreview();
+  }
+}
+window.addStagedFiles = addStagedFiles;
+
+function removeStagedFile(id) {
+  const idx = stagedEvidenceFiles.findIndex(item => item.id === id);
+  if (idx !== -1) {
+    if (stagedEvidenceFiles[idx].previewUrl) {
+      URL.revokeObjectURL(stagedEvidenceFiles[idx].previewUrl);
+    }
+    stagedEvidenceFiles.splice(idx, 1);
+    renderStagedFilesPreview();
+  }
+}
+window.removeStagedFile = removeStagedFile;
+
+function renderStagedFilesPreview() {
+  const container = document.getElementById('mediaPreviewContainer');
+  if (!container) return;
+
+  if (stagedEvidenceFiles.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const totalBytes = stagedEvidenceFiles.reduce((acc, curr) => acc + curr.file.size, 0);
+  const formattedTotal = (totalBytes > 1048576) 
+    ? (totalBytes / 1048576).toFixed(1) + ' MB' 
+    : Math.round(totalBytes / 1024) + ' KB';
+
+  let html = `
+    <div class="upload-summary-bar">
+      <span style="color:#c7d2fe;font-weight:600;">
+        📸 ${stagedEvidenceFiles.length} file${stagedEvidenceFiles.length > 1 ? 's' : ''} staged (${formattedTotal})
+      </span>
+      <button type="button" id="btnClearAllStaged" class="glass-btn glass-btn-sm" style="padding:0.2rem 0.55rem;font-size:0.7rem;background:rgba(239,68,68,0.25);color:#fca5a5;border:1px solid rgba(239,68,68,0.4);">
+        Clear All
+      </button>
+    </div>
+    <div class="upload-preview-grid">
+  `;
+
+  stagedEvidenceFiles.forEach(item => {
+    const file = item.file;
+    const isImg = file.type.startsWith('image/');
+    const isVid = file.type.startsWith('video/');
+    const formattedSize = Math.round(file.size / 1024) + ' KB';
+
+    let mediaThumb = '';
+    if (isImg && item.previewUrl) {
+      mediaThumb = `<img src="${item.previewUrl}" alt="${escapeHtml(file.name)}">`;
+    } else if (isVid) {
+      mediaThumb = `<div style="text-align:center;color:#38bdf8;"><svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg><div style="font-size:0.65rem;margin-top:2px;">VIDEO</div></div>`;
+    } else {
+      mediaThumb = `<div style="font-size:1.5rem;">📎</div>`;
+    }
+
+    html += `
+      <div class="upload-preview-card" data-file-id="${item.id}">
+        <button type="button" class="upload-preview-remove" title="Remove this file" onclick="removeStagedFile('${item.id}')">&times;</button>
+        <div class="upload-preview-media">
+          ${mediaThumb}
+        </div>
+        <div class="upload-preview-info">
+          <div class="upload-preview-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name)}</div>
+          <div class="upload-preview-size">${formattedSize}</div>
+        </div>
+      </div>
+    `;
+  });
+
+  html += `</div>`;
+  container.innerHTML = html;
+
+  const btnClear = document.getElementById('btnClearAllStaged');
+  if (btnClear) {
+    btnClear.addEventListener('click', clearStagedEvidenceFiles);
+  }
+}
+
+// Dropzone click & keyboard trigger
+document.addEventListener('click', (e) => {
+  const dropzone = e.target.closest('#evidenceDropzone');
+  if (dropzone && !e.target.closest('.upload-preview-remove') && !e.target.closest('#btnClearAllStaged')) {
+    const fileInput = document.getElementById('evidence_files');
+    if (fileInput) fileInput.click();
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.id === 'evidenceDropzone') {
+    e.preventDefault();
+    const fileInput = document.getElementById('evidence_files');
+    if (fileInput) fileInput.click();
+  }
+});
+
+// File input change: add files and reset input.value so user can add more in subsequent clicks
 document.addEventListener('change', (e) => {
   if (e.target && e.target.id === 'evidence_files') {
-    const preview = document.getElementById('mediaPreviewContainer');
-    if (!preview) return;
-    preview.innerHTML = '';
-
-    const files = Array.from(e.target.files);
-    files.forEach(file => {
-      const isImg = file.type.startsWith('image/');
-      const isVid = file.type.startsWith('video/');
-
-      const chip = document.createElement('div');
-      chip.className = 'glass-card-sm';
-      chip.style.display = 'inline-flex';
-      chip.style.alignItems = 'center';
-      chip.style.gap = '0.5rem';
-      chip.style.padding = '0.35rem 0.65rem';
-      chip.style.margin = '0.25rem';
-      chip.style.fontSize = '0.75rem';
-
-      chip.innerHTML = `
-        <span>${isImg ? '📷' : isVid ? '🎬' : '📎'}</span>
-        <span style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(file.name)}</span>
-        <span style="color:#94a3b8;">(${Math.round(file.size / 1024)} KB)</span>
-      `;
-      preview.appendChild(chip);
-    });
+    if (e.target.files && e.target.files.length > 0) {
+      addStagedFiles(e.target.files);
+      e.target.value = '';
+    }
   }
+});
+
+// Drag and drop events for dropzone
+['dragenter', 'dragover'].forEach(eventName => {
+  document.addEventListener(eventName, (e) => {
+    const dropzone = e.target.closest('#evidenceDropzone');
+    if (dropzone) {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.classList.add('dragover');
+    }
+  });
+});
+
+['dragleave', 'drop'].forEach(eventName => {
+  document.addEventListener(eventName, (e) => {
+    const dropzone = e.target.closest('#evidenceDropzone');
+    if (dropzone) {
+      e.preventDefault();
+      e.stopPropagation();
+      dropzone.classList.remove('dragover');
+      if (eventName === 'drop' && e.dataTransfer && e.dataTransfer.files) {
+        addStagedFiles(e.dataTransfer.files);
+      }
+    }
+  });
 });
 
 /**
@@ -328,6 +544,14 @@ document.addEventListener('submit', async (e) => {
 
     try {
       const formData = new FormData(form);
+
+      // Clean out any direct file inputs and append all staged evidence files
+      formData.delete('evidence_files[]');
+      formData.delete('evidence_files');
+      stagedEvidenceFiles.forEach(item => {
+        formData.append('evidence_files[]', item.file, item.file.name);
+      });
+
       const res = await fetch(window.BASE_URL + '/api/update_task_stage.php', {
         method: 'POST',
         body: formData
@@ -336,6 +560,7 @@ document.addEventListener('submit', async (e) => {
       const data = await res.json();
       if (data.success) {
         showToast(data.message || 'Task status successfully updated!', 'success');
+        clearStagedEvidenceFiles();
         closeModal('modalUpdateStage');
         setTimeout(() => window.location.reload(), 700);
       } else {
@@ -759,12 +984,19 @@ async function loadTaskReport(taskId) {
                     actor_name: log.actor_name,
                     actor_role: log.actor_role,
                     formatted_logged_at: log.formatted_logged_at,
+                    raw_logged_at: log.raw_logged_at || log.logged_at || "",
                     remarks: log.raw_remarks || log.remarks || "",
                     reference_urls: log.raw_reference_urls || log.reference_urls || ""
                   }).replace(/'/g, "&#39;")})' title="Edit Activity Remarks & References">
                     <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
                     Edit
                   </button>
+                  ${window.APP_USER_ROLE === 'admin' ? `
+                    <button type="button" class="glass-btn glass-btn-sm" style="padding:0.25rem 0.55rem;font-size:0.75rem;background:rgba(239,68,68,0.2);color:#fca5a5;border:1px solid rgba(239,68,68,0.4);" onclick="deleteTaskLog(${log.log_id}, ${t.task_id}, '${escapeHtml(log.stage_name)}')" title="Delete this audit trail entry (Admin only)">
+                      <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                      Delete
+                    </button>
+                  ` : ''}
                 </div>
               </div>
               <div class="timeline-remarks">${escapeHtml(log.remarks || 'No detailed remarks recorded.')}</div>
@@ -802,6 +1034,26 @@ function openEditLogModal(log) {
   document.getElementById('edit_log_stage_badge').innerHTML = log.stage_badge || log.stage_name;
   document.getElementById('edit_log_remarks').value = log.remarks || '';
   document.getElementById('edit_log_reference_urls').value = log.reference_urls || '';
+
+  const editDateInput = document.getElementById('edit_log_logged_at');
+  if (editDateInput) {
+    const targetDate = log.raw_logged_at || log.logged_at || new Date();
+    if (editDateInput._flatpickr) {
+      editDateInput._flatpickr.setDate(targetDate, true);
+    } else {
+      initDatePickers(modal);
+      if (editDateInput._flatpickr) {
+        editDateInput._flatpickr.setDate(targetDate, true);
+      }
+    }
+  }
+
+  const btnModalDelete = document.getElementById('btnModalDeleteLog');
+  if (btnModalDelete) {
+    btnModalDelete.onclick = () => {
+      deleteTaskLog(log.log_id, log.task_id, log.stage_name);
+    };
+  }
 
   openModal('modalEditLog');
 }
@@ -843,3 +1095,96 @@ document.addEventListener('submit', async (e) => {
     }
   }
 });
+
+/**
+ * ------------------------------------------------------------------------
+ * 11. Delete Process Audit Log Entry (Admin Only)
+ * ------------------------------------------------------------------------
+ */
+async function deleteTaskLog(logId, taskId, stageName) {
+  if (!confirm(`Are you sure you want to permanently delete this audit trail entry (#${logId} - ${stageName})?\n\nThis will remove the activity remarks, timestamp, and any attached media evidence files. This action cannot be undone.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(window.BASE_URL + '/api/delete_task_log.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ log_id: logId, task_id: taskId })
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      showToast(data.message || 'Audit trail entry deleted successfully!', 'success');
+      closeModal('modalEditLog');
+      if (typeof loadTaskReport === 'function') {
+        loadTaskReport(taskId);
+      }
+    } else {
+      showToast(data.message || 'Failed to delete audit log entry.', 'error');
+    }
+  } catch (err) {
+    console.error(err);
+    showToast('Network error while deleting audit log entry.', 'error');
+  }
+}
+/**
+ * ------------------------------------------------------------------------
+ * 12. Mobile Responsive Navigation Toggle
+ * ------------------------------------------------------------------------
+ */
+function initMobileNav() {
+  const toggleBtn = document.getElementById('mobileNavToggle');
+  const navLinks = document.getElementById('mainNavLinks');
+  if (!toggleBtn || !navLinks) return;
+
+  const iconOpen = toggleBtn.querySelector('.icon-open');
+  const iconClose = toggleBtn.querySelector('.icon-close');
+
+  function toggleMenu(forceOpen = null) {
+    const isOpen = forceOpen !== null ? forceOpen : !navLinks.classList.contains('active');
+    if (isOpen) {
+      navLinks.classList.add('active');
+      toggleBtn.setAttribute('aria-expanded', 'true');
+      if (iconOpen) iconOpen.style.display = 'none';
+      if (iconClose) iconClose.style.display = 'block';
+      document.body.style.overflow = 'hidden';
+    } else {
+      navLinks.classList.remove('active');
+      toggleBtn.setAttribute('aria-expanded', 'false');
+      if (iconOpen) iconOpen.style.display = 'block';
+      if (iconClose) iconClose.style.display = 'none';
+      document.body.style.overflow = '';
+    }
+  }
+
+  toggleBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleMenu();
+  });
+
+  // Close when clicking any nav link
+  navLinks.querySelectorAll('a').forEach(link => {
+    link.addEventListener('click', () => {
+      if (window.innerWidth <= 1024) {
+        toggleMenu(false);
+      }
+    });
+  });
+
+  // Close when clicking outside navbar
+  document.addEventListener('click', (e) => {
+    if (navLinks.classList.contains('active') && !e.target.closest('.glass-navbar')) {
+      toggleMenu(false);
+    }
+  });
+
+  // Close on resize if switching to desktop
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 1024 && navLinks.classList.contains('active')) {
+      toggleMenu(false);
+    }
+  });
+}
+window.initMobileNav = initMobileNav;

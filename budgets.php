@@ -44,12 +44,17 @@ $sql = "
         t.supervisor_id,
         t.intern_id,
         i.full_name AS intern_name,
-        s.full_name AS supervisor_name,
+        CASE 
+            WHEN s.role = 'supervisor' THEN s.full_name
+            WHEN sup.user_id IS NOT NULL THEN sup.full_name
+            ELSE s.full_name 
+        END AS supervisor_name,
         r.full_name AS reviewer_name
     FROM budget_requests b
     INNER JOIN tasks t ON b.task_id = t.task_id
     INNER JOIN users i ON t.intern_id = i.user_id
-    INNER JOIN users s ON t.supervisor_id = s.user_id
+    LEFT JOIN users s ON t.supervisor_id = s.user_id
+    LEFT JOIN users sup ON i.supervisor_id = sup.user_id
     LEFT JOIN users r ON b.reviewed_by = r.user_id
     $whereSql
     ORDER BY b.requested_at DESC

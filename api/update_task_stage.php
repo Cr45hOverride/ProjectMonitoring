@@ -77,16 +77,28 @@ if ($role === 'intern') {
 try {
     $pdo->beginTransaction();
 
+    // Determine custom activity datetime (allows user to log delayed progress)
+    $loggedAtInput = trim($_POST['logged_at'] ?? '');
+    $loggedAt = date('Y-m-d H:i:s');
+    if (!empty($loggedAtInput)) {
+        try {
+            $dt = new DateTime($loggedAtInput);
+            $loggedAt = $dt->format('Y-m-d H:i:s');
+        } catch (Exception $e) {
+            $loggedAt = date('Y-m-d H:i:s');
+        }
+    }
+
     $completedAt = $task['completed_at'];
     $approvedAt = $task['approved_at'];
 
     // Update completion timestamps
     if ($targetStage === 'COMPLETED_PENDING_REVIEW' && empty($completedAt)) {
-        $completedAt = date('Y-m-d H:i:s');
+        $completedAt = $loggedAt;
     } elseif ($targetStage === 'APPROVED') {
-        $approvedAt = date('Y-m-d H:i:s');
+        $approvedAt = $loggedAt;
         if (empty($completedAt)) {
-            $completedAt = date('Y-m-d H:i:s');
+            $completedAt = $loggedAt;
         }
     } elseif ($targetStage === 'REVISION_REQUIRED') {
         // Reset completed_at on revision so intern can submit fresh completion timestamp later
@@ -118,14 +130,15 @@ try {
 
     $stmtLog = $pdo->prepare('
         INSERT INTO task_process_logs (task_id, actor_id, stage_name, remarks, reference_urls, logged_at)
-        VALUES (:task_id, :actor_id, :stage_name, :remarks, :reference_urls, NOW())
+        VALUES (:task_id, :actor_id, :stage_name, :remarks, :reference_urls, :logged_at)
     ');
     $stmtLog->execute([
         ':task_id'        => $taskId,
         ':actor_id'       => $currentUser['user_id'],
         ':stage_name'     => $targetStage,
         ':remarks'        => $logRemarks,
-        ':reference_urls' => !empty($referenceUrls) ? $referenceUrls : null
+        ':reference_urls' => !empty($referenceUrls) ? $referenceUrls : null,
+        ':logged_at'      => $loggedAt
     ]);
     $logId = (int)$pdo->lastInsertId();
 
@@ -141,60 +154,115 @@ try {
 
         $stmtBudget = $pdo->prepare('
             INSERT INTO budget_requests (task_id, amount, justification, status, requested_at)
-            VALUES (:task_id, :amount, :justification, "pending", NOW())
+            VALUES (:task_id, :amount, :justification, "pending", :requested_at)
         ');
         $stmtBudget->execute([
             ':task_id'       => $taskId,
             ':amount'        => $budgetAmount,
-            ':justification' => $budgetJustification
+            ':justification' => $budgetJustification,
+            ':requested_at'  => $loggedAt
         ]);
     }
 
-    // Handle Media Evidence Uploads (multiple files)
-    if (!empty($_FILES['evidence_files']['name'][0])) {
-        $year = date('Y');
-        $month = date('m');
-        $targetDirRel = UPLOAD_DIR_REL . '/' . $year . '/' . $month;
-        $targetDirAbs = ROOT_PATH . '/' . $targetDirRel;
+    // Auto-approve pending budget requests if supervisor/admin transitions stage to BUDGET_APPROVED
+    // (or directly to IN_EXECUTION from BUDGET_PENDING)
+    if ($targetStage === 'BUDGET_APPROVED' || ($currentStage === 'BUDGET_PENDING' && $targetStage === 'IN_EXECUTION')) {
+        $stmtApproveBudget = $pdo->prepare('
+            UPDATE budget_requests 
+            SET status = "approved", 
+                reviewed_by = :reviewer, 
+                reviewed_at = :reviewed_at 
+            WHERE task_id = :task_id AND status = "pending"
+        ');
+        $stmtApproveBudget->execute([
+            ':reviewer'    => $currentUser['user_id'],
+            ':reviewed_at' => $loggedAt,
+            ':task_id'     => $taskId
+        ]);
+    }
 
-        if (!is_dir($targetDirAbs)) {
-            mkdir($targetDirAbs, 0755, true);
+    // Auto-reject pending budget requests if supervisor/admin moves back to PLANNING from BUDGET_PENDING
+    if ($currentStage === 'BUDGET_PENDING' && $targetStage === 'PLANNING') {
+        $stmtRejectBudget = $pdo->prepare('
+            UPDATE budget_requests 
+            SET status = "rejected", 
+                reviewed_by = :reviewer, 
+                reviewed_at = :reviewed_at 
+            WHERE task_id = :task_id AND status = "pending"
+        ');
+        $stmtRejectBudget->execute([
+            ':reviewer'    => $currentUser['user_id'],
+            ':reviewed_at' => $loggedAt,
+            ':task_id'     => $taskId
+        ]);
+    }
+
+    // Handle Media Evidence Uploads (multiple files supported)
+    if (isset($_FILES['evidence_files'])) {
+        $rawFiles = $_FILES['evidence_files'];
+        $fileList = [];
+
+        if (is_array($rawFiles['name'])) {
+            $count = count($rawFiles['name']);
+            for ($i = 0; $i < $count; $i++) {
+                if (!empty($rawFiles['name'][$i]) && $rawFiles['error'][$i] === UPLOAD_ERR_OK) {
+                    $fileList[] = [
+                        'name'     => $rawFiles['name'][$i],
+                        'tmp_name' => $rawFiles['tmp_name'][$i],
+                        'error'    => $rawFiles['error'][$i],
+                        'size'     => $rawFiles['size'][$i]
+                    ];
+                }
+            }
+        } elseif (!empty($rawFiles['name']) && $rawFiles['error'] === UPLOAD_ERR_OK) {
+            $fileList[] = [
+                'name'     => $rawFiles['name'],
+                'tmp_name' => $rawFiles['tmp_name'],
+                'error'    => $rawFiles['error'],
+                'size'     => $rawFiles['size']
+            ];
         }
 
-        $allowedExts = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov'];
-        $imageExts = ['jpg', 'jpeg', 'png', 'webp'];
-        $videoExts = ['mp4', 'mov'];
+        if (!empty($fileList)) {
+            $year = date('Y');
+            $month = date('m');
+            $targetDirRel = UPLOAD_DIR_REL . '/' . $year . '/' . $month;
+            $targetDirAbs = ROOT_PATH . '/' . $targetDirRel;
 
-        $fileCount = count($_FILES['evidence_files']['name']);
-        for ($i = 0; $i < $fileCount; $i++) {
-            $error = $_FILES['evidence_files']['error'][$i];
-            if ($error !== UPLOAD_ERR_OK) {
-                continue;
+            if (!is_dir($targetDirAbs)) {
+                mkdir($targetDirAbs, 0755, true);
             }
 
-            $origName = $_FILES['evidence_files']['name'][$i];
-            $tmpPath = $_FILES['evidence_files']['tmp_name'][$i];
-            $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+            $allowedExts = ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'mov'];
+            $imageExts = ['jpg', 'jpeg', 'png', 'webp'];
+            $videoExts = ['mp4', 'mov'];
 
-            if (!in_array($ext, $allowedExts, true)) {
-                continue; // Ignore unsupported file types
-            }
+            $stmtMedia = $pdo->prepare('
+                INSERT INTO task_media (log_id, file_path, file_type, uploaded_at)
+                VALUES (:log_id, :file_path, :file_type, NOW())
+            ');
 
-            $fileType = in_array($ext, $videoExts, true) ? 'video' : 'image';
-            $uniqueName = 'evidence_' . time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
-            $destRel = $targetDirRel . '/' . $uniqueName;
-            $destAbs = $targetDirAbs . '/' . $uniqueName;
+            foreach ($fileList as $f) {
+                $origName = $f['name'];
+                $tmpPath = $f['tmp_name'];
+                $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
 
-            if (move_uploaded_file($tmpPath, $destAbs)) {
-                $stmtMedia = $pdo->prepare('
-                    INSERT INTO task_media (log_id, file_path, file_type, uploaded_at)
-                    VALUES (:log_id, :file_path, :file_type, NOW())
-                ');
-                $stmtMedia->execute([
-                    ':log_id'    => $logId,
-                    ':file_path' => $destRel,
-                    ':file_type' => $fileType
-                ]);
+                if (!in_array($ext, $allowedExts, true)) {
+                    continue; // Skip unsupported file types
+                }
+
+                $fileType = in_array($ext, $videoExts, true) ? 'video' : 'image';
+                $uniqueName = 'evidence_' . date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+                $destRel = $targetDirRel . '/' . $uniqueName;
+                $destAbs = $targetDirAbs . '/' . $uniqueName;
+
+                if (move_uploaded_file($tmpPath, $destAbs)) {
+                    $stmtMedia->execute([
+                        ':log_id'    => $logId,
+                        ':file_path' => $destRel,
+                        ':file_type' => $fileType
+                    ]);
+                }
             }
         }
     }

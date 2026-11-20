@@ -110,6 +110,20 @@ require_once __DIR__ . '/includes/header.php';
         <span id="edit_log_stage_badge"></span>
       </div>
 
+      <!-- Activity Date & Time Input (Mandatory Date Input Standard with Calendar Icon) -->
+      <div class="form-group">
+        <label class="form-label" for="edit_log_logged_at">
+          Activity Date & Time
+          <span style="font-weight:400;color:var(--text-muted);font-size:0.75rem;">(Adjust if correcting activity timestamp)</span>
+        </label>
+        <div class="glass-date-group">
+          <input type="text" name="logged_at" id="edit_log_logged_at" class="glass-input flatpickr-input" placeholder="Select date & time" data-enable-time="true" required>
+          <button type="button" class="glass-date-toggle" data-toggle aria-label="Open Calendar">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          </button>
+        </div>
+      </div>
+
       <div class="form-group">
         <label class="form-label" for="edit_log_remarks">Process Remarks / Detailed Documentation</label>
         <textarea name="remarks" id="edit_log_remarks" class="glass-textarea" rows="4" placeholder="Update technical remarks, fix typos, or clarify milestone deliverables..." required></textarea>
@@ -123,9 +137,19 @@ require_once __DIR__ . '/includes/header.php';
         <textarea name="reference_urls" id="edit_log_reference_urls" class="glass-textarea" rows="3" placeholder="https://github.com/...&#10;https://docs.google.com/..."></textarea>
       </div>
 
-      <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1.5rem;">
-        <button type="button" class="glass-btn" data-close-modal>Cancel</button>
-        <button type="submit" class="glass-btn glass-btn-primary">Save Changes</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1.5rem;flex-wrap:wrap;gap:0.75rem;">
+        <div>
+          <?php if (isAdmin()): ?>
+            <button type="button" id="btnModalDeleteLog" class="glass-btn glass-btn-sm" style="background:rgba(239,68,68,0.2);color:#fca5a5;border:1px solid rgba(239,68,68,0.4);" title="Permanently delete this audit entry">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              Delete Entry
+            </button>
+          <?php endif; ?>
+        </div>
+        <div style="display:flex;gap:0.75rem;">
+          <button type="button" class="glass-btn" data-close-modal>Cancel</button>
+          <button type="submit" class="glass-btn glass-btn-primary">Save Changes</button>
+        </div>
       </div>
     </form>
   </div>

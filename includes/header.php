@@ -17,7 +17,7 @@ $currentPage = basename($_SERVER['SCRIPT_NAME'] ?? '');
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
   <title><?= isset($pageTitle) ? htmlspecialchars($pageTitle) . ' | ' : '' ?><?= APP_NAME ?></title>
 
   <!-- Google Fonts -->
@@ -52,7 +52,13 @@ $currentPage = basename($_SERVER['SCRIPT_NAME'] ?? '');
     <span class="brand-badge">INTERN-OPS</span>
   </div>
 
-  <ul class="nav-links">
+  <!-- Mobile Hamburger Toggle Button -->
+  <button type="button" class="mobile-nav-toggle" id="mobileNavToggle" aria-label="Toggle navigation menu" aria-expanded="false">
+    <svg class="icon-open" width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+    <svg class="icon-close" width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="display:none;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+  </button>
+
+  <ul class="nav-links" id="mainNavLinks">
     <li>
       <a href="<?= BASE_URL ?>/dashboard.php" class="nav-link <?= $currentPage === 'dashboard.php' ? 'active' : '' ?>">
         <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
@@ -83,6 +89,25 @@ $currentPage = basename($_SERVER['SCRIPT_NAME'] ?? '');
       <a href="<?= BASE_URL ?>/reports.php" class="nav-link <?= $currentPage === 'reports.php' ? 'active' : '' ?>">
         <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
         Reports & SLA
+      </a>
+    </li>
+
+    <!-- Mobile Drawer Profile & Logout Footer -->
+    <li class="nav-mobile-user">
+      <div class="user-info-pill" style="width:100%;margin-bottom:0.25rem;">
+        <div class="user-avatar">
+          <?= strtoupper(substr($currentUser['full_name'], 0, 1)) ?>
+        </div>
+        <div>
+          <div style="font-size:0.875rem;font-weight:700;line-height:1.2;color:#fff;"><?= htmlspecialchars($currentUser['full_name']) ?></div>
+          <div style="font-size:0.725rem;color:var(--text-muted);text-transform:uppercase;">
+            <?= htmlspecialchars($currentUser['role']) ?> &bull; <?= htmlspecialchars($currentUser['department'] ?: 'KISMEC') ?>
+          </div>
+        </div>
+      </div>
+      <a href="<?= BASE_URL ?>/logout.php" class="glass-btn glass-btn-danger" style="width:100%;justify-content:center;padding:0.75rem;">
+        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+        Sign Out / Exit Portal
       </a>
     </li>
   </ul>

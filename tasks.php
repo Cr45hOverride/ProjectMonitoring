@@ -53,11 +53,16 @@ $whereSql = !empty($where) ? 'WHERE ' . implode(' AND ', $where) : '';
 $sql = "
     SELECT 
         t.*,
-        s.full_name AS supervisor_name,
+        CASE 
+            WHEN s.role = 'supervisor' THEN s.full_name
+            WHEN sup.user_id IS NOT NULL THEN sup.full_name
+            ELSE s.full_name 
+        END AS supervisor_name,
         i.full_name AS intern_name
     FROM tasks t
-    INNER JOIN users s ON t.supervisor_id = s.user_id
+    LEFT JOIN users s ON t.supervisor_id = s.user_id
     INNER JOIN users i ON t.intern_id = i.user_id
+    LEFT JOIN users sup ON i.supervisor_id = sup.user_id
     $whereSql
     ORDER BY t.created_at DESC
 ";
@@ -86,13 +91,18 @@ foreach ($tasks as $task) {
 
 // Fetch active interns for Task Assignment dropdown (Supervisor / Admin)
 $interns = [];
+$supervisors = [];
 if (!isIntern()) {
-    $sqlInterns = 'SELECT user_id, full_name, department FROM users WHERE role = "intern" AND status = "active"';
+    $sqlInterns = 'SELECT user_id, full_name, department, supervisor_id FROM users WHERE role = "intern" AND status = "active"';
     if (isSupervisor()) {
         $sqlInterns .= ' AND (supervisor_id = ' . (int)$currentUser['user_id'] . ' OR supervisor_id IS NULL)';
     }
     $sqlInterns .= ' ORDER BY full_name ASC';
     $interns = $pdo->query($sqlInterns)->fetchAll();
+
+    if (!isSupervisor()) {
+        $supervisors = $pdo->query('SELECT user_id, full_name, department FROM users WHERE role = "supervisor" AND status = "active" ORDER BY full_name ASC')->fetchAll();
+    }
 }
 
 $pageTitle = 'Task & Project Portfolio';
@@ -259,12 +269,26 @@ require_once __DIR__ . '/includes/header.php';
         <select name="intern_id" id="task_intern_id" class="glass-select" required>
           <option value="">-- Select Intern --</option>
           <?php foreach ($interns as $in): ?>
-            <option value="<?= $in['user_id'] ?>">
+            <option value="<?= $in['user_id'] ?>" data-supervisor-id="<?= $in['supervisor_id'] ?? '' ?>">
               <?= htmlspecialchars($in['full_name']) ?> (<?= htmlspecialchars($in['department'] ?: 'Intern') ?>)
             </option>
           <?php endforeach; ?>
         </select>
       </div>
+
+      <?php if (!isSupervisor()): ?>
+      <div class="form-group">
+        <label class="form-label" for="task_supervisor_id">Direct Supervisor</label>
+        <select name="supervisor_id" id="task_supervisor_id" class="glass-select">
+          <option value="">-- Auto-detect from Intern Profile --</option>
+          <?php foreach ($supervisors as $sp): ?>
+            <option value="<?= $sp['user_id'] ?>">
+              <?= htmlspecialchars($sp['full_name']) ?> (<?= htmlspecialchars($sp['department'] ?: 'Supervisor') ?>)
+            </option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <?php endif; ?>
 
       <div class="form-group">
         <label class="form-label" for="task_priority">Priority</label>
@@ -339,6 +363,20 @@ require_once __DIR__ . '/includes/header.php';
         </select>
       </div>
 
+      <!-- Activity Date & Time Input (Mandatory Date Input Standard with Calendar Icon) -->
+      <div class="form-group">
+        <label class="form-label" for="stage_logged_at">
+          Activity Date & Time
+          <span style="font-weight:400;color:var(--text-muted);font-size:0.75rem;">(Adjust if recording delayed progress)</span>
+        </label>
+        <div class="glass-date-group">
+          <input type="text" name="logged_at" id="stage_logged_at" class="glass-input flatpickr-input" placeholder="Select activity date & time" data-enable-time="true" data-default-today="true" required>
+          <button type="button" class="glass-date-toggle" data-toggle aria-label="Open Calendar">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          </button>
+        </div>
+      </div>
+
       <!-- Conditional Budget Fields (Visible when target is BUDGET_PENDING) -->
       <div id="budget_request_fields" style="display:none;padding:1rem;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:12px;margin-bottom:1.25rem;">
         <div class="form-group">
@@ -365,11 +403,24 @@ require_once __DIR__ . '/includes/header.php';
         <textarea name="reference_urls" id="stage_reference_urls" class="glass-textarea" rows="2" placeholder="e.g. https://github.com/kismec/project-repo&#10;https://docs.google.com/document/d/..."></textarea>
       </div>
 
-      <!-- Media Evidence Upload Standard -->
+      <!-- Media Evidence Upload Standard (Multi-Image / Multi-Video Dropzone) -->
       <div class="form-group">
-        <label class="form-label" for="evidence_files">Attach Media Evidence (Images: JPG, PNG, WEBP &bull; Videos: MP4, MOV)</label>
-        <input type="file" name="evidence_files[]" id="evidence_files" class="glass-input" multiple accept=".jpg,.jpeg,.png,.webp,.mp4,.mov">
-        <div id="mediaPreviewContainer" style="margin-top:0.5rem;display:flex;flex-wrap:wrap;"></div>
+        <label class="form-label" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Attach Media Evidence</span>
+          <span style="font-weight:400;color:#818cf8;font-size:0.75rem;">Multiple images &amp; videos supported</span>
+        </label>
+        
+        <div id="evidenceDropzone" class="glass-upload-zone" tabindex="0" role="button" aria-label="Upload multiple media evidence files">
+          <input type="file" id="evidence_files" name="evidence_files[]" multiple accept=".jpg,.jpeg,.png,.webp,.mp4,.mov" style="display:none;">
+          <div class="upload-zone-icon">
+            <svg width="32" height="32" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          </div>
+          <div class="upload-zone-title">Click to choose or Drag &amp; Drop multiple files here</div>
+          <div class="upload-zone-sub">Upload multiple images (JPG, PNG, WEBP) or videos (MP4, MOV). You can add files repeatedly.</div>
+          <span class="upload-badge">+ Add Multiple Images / Videos</span>
+        </div>
+
+        <div id="mediaPreviewContainer"></div>
       </div>
 
       <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1.5rem;">
@@ -385,6 +436,19 @@ require_once __DIR__ . '/includes/header.php';
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('action') === 'new') {
     openModal('modalCreateTask');
+  }
+
+  // Auto-select supervisor when intern is chosen in Assign Task modal
+  const internSelect = document.getElementById('task_intern_id');
+  if (internSelect) {
+    internSelect.addEventListener('change', function() {
+      const selectedOption = this.options[this.selectedIndex];
+      const supId = selectedOption ? selectedOption.getAttribute('data-supervisor-id') : '';
+      const supSelect = document.getElementById('task_supervisor_id');
+      if (supSelect && supId) {
+        supSelect.value = supId;
+      }
+    });
   }
 </script>
 

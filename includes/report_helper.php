@@ -222,17 +222,30 @@ function getTaskFullDetails(PDO $pdo, int $taskId): ?array {
     $stmt = $pdo->prepare('
         SELECT 
             t.*,
-            s.full_name AS supervisor_name,
-            s.email AS supervisor_email,
-            s.department AS supervisor_dept,
+            CASE 
+                WHEN s.role = "supervisor" THEN s.full_name
+                WHEN sup.user_id IS NOT NULL THEN sup.full_name
+                ELSE s.full_name 
+            END AS supervisor_name,
+            CASE 
+                WHEN s.role = "supervisor" THEN s.email
+                WHEN sup.user_id IS NOT NULL THEN sup.email
+                ELSE s.email 
+            END AS supervisor_email,
+            CASE 
+                WHEN s.role = "supervisor" THEN s.department
+                WHEN sup.user_id IS NOT NULL THEN sup.department
+                ELSE s.department 
+            END AS supervisor_dept,
             i.full_name AS intern_name,
             i.email AS intern_email,
             i.department AS intern_dept,
             i.intern_start_date,
             i.intern_end_date
         FROM tasks t
-        INNER JOIN users s ON t.supervisor_id = s.user_id
+        LEFT JOIN users s ON t.supervisor_id = s.user_id
         INNER JOIN users i ON t.intern_id = i.user_id
+        LEFT JOIN users sup ON i.supervisor_id = sup.user_id
         WHERE t.task_id = :task_id
         LIMIT 1
     ');

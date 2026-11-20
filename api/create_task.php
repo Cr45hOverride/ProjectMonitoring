@@ -34,9 +34,9 @@ if (!in_array($priority, ['low', 'medium', 'high'], true)) {
     $priority = 'medium';
 }
 
-// Ensure selected intern exists and is active
+// Ensure selected intern exists and is active, and fetch their assigned supervisor
 $pdo = getDBConnection();
-$stmtIntern = $pdo->prepare('SELECT user_id, role, status FROM users WHERE user_id = :id AND role = "intern" LIMIT 1');
+$stmtIntern = $pdo->prepare('SELECT user_id, role, status, supervisor_id FROM users WHERE user_id = :id AND role = "intern" LIMIT 1');
 $stmtIntern->execute([':id' => $internId]);
 $intern = $stmtIntern->fetch();
 
@@ -44,8 +44,20 @@ if (!$intern || $intern['status'] !== 'active') {
     jsonResponse(['success' => false, 'message' => 'Selected intern is invalid or inactive.'], 422);
 }
 
-// Determine supervisor_id
-$supervisorId = $currentUser['role'] === 'supervisor' ? $currentUser['user_id'] : (int)($_POST['supervisor_id'] ?? $currentUser['user_id']);
+// Determine supervisor_id:
+// 1. If creator is a supervisor, they are the supervisor.
+// 2. If an explicit supervisor_id is submitted, use that.
+// 3. Otherwise, auto-assign the intern's direct supervisor from their profile.
+// 4. Fallback to creator user_id only if no direct supervisor exists.
+if ($currentUser['role'] === 'supervisor') {
+    $supervisorId = $currentUser['user_id'];
+} elseif (!empty($_POST['supervisor_id'])) {
+    $supervisorId = (int)$_POST['supervisor_id'];
+} elseif (!empty($intern['supervisor_id'])) {
+    $supervisorId = (int)$intern['supervisor_id'];
+} else {
+    $supervisorId = $currentUser['user_id'];
+}
 
 try {
     $pdo->beginTransaction();

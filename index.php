@@ -56,7 +56,7 @@ $pageTitle = 'Sign In';
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
   <title>Sign In | <?= APP_NAME ?></title>
 
   <!-- Google Fonts -->
@@ -100,6 +100,20 @@ $pageTitle = 'Sign In';
       background: rgba(99, 102, 241, 0.3);
       border-color: #6366f1;
       color: #fff;
+    }
+    @media (max-width: 480px) {
+      .login-container {
+        padding: 1rem;
+      }
+      .login-card {
+        padding: 1.5rem 1.25rem;
+        border-radius: 16px;
+      }
+      .demo-pill {
+        flex: 1;
+        text-align: center;
+        padding: 0.5rem 0.65rem;
+      }
     }
   </style>
 </head>
