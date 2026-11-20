@@ -94,13 +94,49 @@ if ($isLocal) {
     }
 } else {
     // --- LIVE PRODUCTION SERVER ---
-    // Production cPanel hosting URL per system specifications (no trailing slash)
-    $baseUrl = 'https://kismec.org.my/jupiter/intern';
+    // Production cPanel hosting URL (without trailing slash)
+    // Production path: https://kismec.org.my/jupiter/project_management
+    $baseUrl = 'https://kismec.org.my/jupiter/project_management';
 }
 
 // Save the resulting web address into the global constant BASE_URL
 if (!defined('BASE_URL')) {
-    define('BASE_URL', rtrim($baseUrl, '/')); // e.g. "http://localhost/Intern"
+    define('BASE_URL', rtrim($baseUrl, '/')); // e.g. "http://localhost/Intern" or "https://kismec.org.my/jupiter/project_management"
+}
+
+// Step 4b: Production Database Configuration Constants (cPanel)
+// ----------------------------------------------------------------------------
+// When uploaded to your live cPanel hosting server, config/db.php automatically
+// reads these constants to connect to your production MySQL database:
+//
+// Server:   localhost
+// Database: kismec_project_management
+// Username: kismec_project_management
+// Password: kismec_project_management
+//
+// (We also define alternatives in case your cPanel setup created names with spaces)
+if (!defined('PROD_DB_HOST')) {
+    define('PROD_DB_HOST', 'localhost');
+}
+if (!defined('PROD_DB_NAME')) {
+    define('PROD_DB_NAME', 'kismec_project_management');
+}
+if (!defined('PROD_DB_USER')) {
+    define('PROD_DB_USER', 'kismec_project_management');
+}
+if (!defined('PROD_DB_PASS')) {
+    define('PROD_DB_PASS', 'kismec_project_management');
+}
+
+// Alternative variations (with literal space) for resilient fallback
+if (!defined('PROD_DB_NAME_ALT')) {
+    define('PROD_DB_NAME_ALT', 'kismec_ project_management');
+}
+if (!defined('PROD_DB_USER_ALT')) {
+    define('PROD_DB_USER_ALT', 'kismec_ project_management');
+}
+if (!defined('PROD_DB_PASS_ALT')) {
+    define('PROD_DB_PASS_ALT', 'kismec_ project_management');
 }
 
 // Step 5: Upload Directory Configuration
