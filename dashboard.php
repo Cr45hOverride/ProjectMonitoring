@@ -21,11 +21,11 @@ $whereClause = '';
 $params = [];
 
 if (isSupervisor()) {
-    $whereClause = 'WHERE t.supervisor_id = :uid';
-    $params[':uid'] = $currentUser['user_id'];
+  $whereClause = 'WHERE t.supervisor_id = :uid';
+  $params[':uid'] = $currentUser['user_id'];
 } elseif (isIntern()) {
-    $whereClause = 'WHERE t.intern_id = :uid';
-    $params[':uid'] = $currentUser['user_id'];
+  $whereClause = 'WHERE t.intern_id = :uid';
+  $params[':uid'] = $currentUser['user_id'];
 }
 
 // Fetch all relevant tasks for KPI metrics & SLA inspection
@@ -60,42 +60,45 @@ $kpiOnTrack = 0;
 
 $urgentTasks = [];
 $stageCounts = [
-    'ASSIGNED'                 => 0,
-    'PLANNING'                 => 0,
-    'BUDGET_PENDING'           => 0,
-    'BUDGET_APPROVED'          => 0,
-    'IN_EXECUTION'             => 0,
-    'REVISION_REQUIRED'        => 0,
-    'COMPLETED_PENDING_REVIEW' => 0,
-    'APPROVED'                 => 0,
+  'ASSIGNED' => 0,
+  'PLANNING' => 0,
+  'BUDGET_PENDING' => 0,
+  'BUDGET_APPROVED' => 0,
+  'IN_EXECUTION' => 0,
+  'REVISION_REQUIRED' => 0,
+  'COMPLETED_PENDING_REVIEW' => 0,
+  'APPROVED' => 0,
 ];
 
 foreach ($allTasks as &$t) {
-    $stage = $t['current_stage'];
-    if (isset($stageCounts[$stage])) {
-        $stageCounts[$stage]++;
+  $stage = $t['current_stage'];
+  if (isset($stageCounts[$stage])) {
+    $stageCounts[$stage]++;
+  }
+
+  if ($stage === 'IN_EXECUTION')
+    $kpiInExecution++;
+  if ($stage === 'COMPLETED_PENDING_REVIEW')
+    $kpiPendingReview++;
+  if ($stage === 'APPROVED')
+    $kpiApproved++;
+
+  $sla = calculateSlaStatus($t['due_date'], $t['completed_at']);
+  $t['sla'] = $sla;
+
+  if ($sla['status'] === 'overdue' || $sla['status'] === 'completed_late') {
+    $kpiOverdue++;
+    if ($stage !== 'APPROVED') {
+      $urgentTasks[] = $t;
     }
-
-    if ($stage === 'IN_EXECUTION') $kpiInExecution++;
-    if ($stage === 'COMPLETED_PENDING_REVIEW') $kpiPendingReview++;
-    if ($stage === 'APPROVED') $kpiApproved++;
-
-    $sla = calculateSlaStatus($t['due_date'], $t['completed_at']);
-    $t['sla'] = $sla;
-
-    if ($sla['status'] === 'overdue' || $sla['status'] === 'completed_late') {
-        $kpiOverdue++;
-        if ($stage !== 'APPROVED') {
-            $urgentTasks[] = $t;
-        }
-    } elseif ($sla['status'] === 'due_soon') {
-        $kpiDueSoon++;
-        if ($stage !== 'APPROVED') {
-            $urgentTasks[] = $t;
-        }
-    } else {
-        $kpiOnTrack++;
+  } elseif ($sla['status'] === 'due_soon') {
+    $kpiDueSoon++;
+    if ($stage !== 'APPROVED') {
+      $urgentTasks[] = $t;
     }
+  } else {
+    $kpiOnTrack++;
+  }
 }
 unset($t);
 
@@ -114,8 +117,8 @@ $stmtBudget = $pdo->prepare($sqlBudget);
 $stmtBudget->execute($params);
 $budgetKpis = $stmtBudget->fetch();
 
-$totalRequested = (float)($budgetKpis['total_requested'] ?? 0);
-$totalApproved = (float)($budgetKpis['total_approved'] ?? 0);
+$totalRequested = (float) ($budgetKpis['total_requested'] ?? 0);
+$totalApproved = (float) ($budgetKpis['total_approved'] ?? 0);
 
 $pageTitle = 'Operations Dashboard';
 require_once __DIR__ . '/includes/header.php';
@@ -126,7 +129,9 @@ require_once __DIR__ . '/includes/header.php';
   <div class="page-header">
     <div>
       <h1 class="page-title">
-        <svg width="28" height="28" fill="none" stroke="#6366f1" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        <svg width="28" height="28" fill="none" stroke="#6366f1" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
         Command & Operations Dashboard
       </h1>
       <p class="page-subtitle">Real-time workflow monitoring, task stage lifecycle, and SLA governance.</p>
@@ -135,12 +140,17 @@ require_once __DIR__ . '/includes/header.php';
     <div style="display:flex;gap:0.75rem;">
       <?php if (!isIntern()): ?>
         <a href="<?= BASE_URL ?>/tasks.php?action=new" class="glass-btn glass-btn-primary">
-          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
           Assign New Task
         </a>
       <?php endif; ?>
       <a href="<?= BASE_URL ?>/reports.php" class="glass-btn">
-        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
         Generate Report
       </a>
     </div>
@@ -150,7 +160,10 @@ require_once __DIR__ . '/includes/header.php';
   <div class="stats-grid">
     <div class="glass-panel stat-card">
       <div class="stat-icon stat-icon-indigo">
-        <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+        </svg>
       </div>
       <div>
         <div class="stat-value"><?= $kpiTotal ?></div>
@@ -160,7 +173,10 @@ require_once __DIR__ . '/includes/header.php';
 
     <div class="glass-panel stat-card">
       <div class="stat-icon stat-icon-amber">
-        <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
       </div>
       <div>
         <div class="stat-value"><?= $kpiDueSoon ?></div>
@@ -170,7 +186,10 @@ require_once __DIR__ . '/includes/header.php';
 
     <div class="glass-panel stat-card">
       <div class="stat-icon stat-icon-rose">
-        <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+        <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
       </div>
       <div>
         <div class="stat-value"><?= $kpiOverdue ?></div>
@@ -180,7 +199,10 @@ require_once __DIR__ . '/includes/header.php';
 
     <div class="glass-panel stat-card">
       <div class="stat-icon stat-icon-emerald">
-        <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
       </div>
       <div>
         <div class="stat-value"><?= $kpiApproved ?></div>
@@ -190,10 +212,13 @@ require_once __DIR__ . '/includes/header.php';
 
     <div class="glass-panel stat-card">
       <div class="stat-icon stat-icon-indigo">
-        <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
       </div>
       <div>
-        <div class="stat-value"><?= CURRENCY_SYMBOL ?> <?= number_format($totalApproved, 2) ?></div>
+        <div class="stat-value"><?= APP_CURRENCY ?> <?= number_format($totalApproved, 2) ?></div>
         <div class="stat-label">Approved Budgets</div>
       </div>
     </div>
@@ -203,7 +228,10 @@ require_once __DIR__ . '/includes/header.php';
   <?php if (!empty($urgentTasks)): ?>
     <div class="glass-panel" style="margin-bottom:2rem;border-left:4px solid var(--color-warning);">
       <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;">
-        <svg width="24" height="24" fill="none" stroke="#f59e0b" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+        <svg width="24" height="24" fill="none" stroke="#f59e0b" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
         <h2 style="font-size:1.15rem;font-weight:700;color:#fff;">SLA Timeline Alerts (Attention Required)</h2>
       </div>
 
@@ -212,7 +240,7 @@ require_once __DIR__ . '/includes/header.php';
           <thead>
             <tr>
               <th>Task Title</th>
-              <th>Intern</th>
+              <th>Assign To</th>
               <th>Stage</th>
               <th>Due Date</th>
               <th>SLA Verdict</th>
@@ -253,8 +281,12 @@ require_once __DIR__ . '/includes/header.php';
 
   <!-- Stage Lifecycle Distribution Overview -->
   <div class="glass-panel" style="margin-bottom:2rem;">
-    <h2 style="font-size:1.15rem;font-weight:700;color:#fff;margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem;">
-      <svg width="20" height="20" fill="none" stroke="#6366f1" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+    <h2
+      style="font-size:1.15rem;font-weight:700;color:#fff;margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem;">
+      <svg width="20" height="20" fill="none" stroke="#6366f1" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+      </svg>
       Workflow Stage Pipeline
     </h2>
 
@@ -272,7 +304,10 @@ require_once __DIR__ . '/includes/header.php';
   <div class="glass-panel">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;">
       <h2 style="font-size:1.15rem;font-weight:700;color:#fff;display:flex;align-items:center;gap:0.5rem;">
-        <svg width="20" height="20" fill="none" stroke="#38bdf8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        <svg width="20" height="20" fill="none" stroke="#38bdf8" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+        </svg>
         Active Task Portfolio
       </h2>
       <a href="<?= BASE_URL ?>/tasks.php" class="glass-btn glass-btn-sm">View All Tasks &rarr;</a>
@@ -284,7 +319,7 @@ require_once __DIR__ . '/includes/header.php';
           <tr>
             <th>Ref</th>
             <th>Task Title</th>
-            <th>Intern</th>
+            <th>Assign To</th>
             <th>Stage</th>
             <th>Priority</th>
             <th>Target Due</th>
@@ -301,8 +336,9 @@ require_once __DIR__ . '/includes/header.php';
             </tr>
           <?php else: ?>
             <?php foreach (array_slice($allTasks, 0, 10) as $t): ?>
-              <tr>
-                <td><span style="font-size:0.8rem;color:var(--text-muted);font-weight:700;">#<?= $t['task_id'] ?></span></td>
+              <tr id="task-row-<?= $t['task_id'] ?>">
+                <td><span style="font-size:0.8rem;color:var(--text-muted);font-weight:700;">#<?= $t['task_id'] ?></span>
+                </td>
                 <td>
                   <strong><?= htmlspecialchars($t['title']) ?></strong>
                 </td>
@@ -324,9 +360,21 @@ require_once __DIR__ . '/includes/header.php';
                   ]), ENT_QUOTES, 'UTF-8') ?>)">
                     Update
                   </button>
-                  <a href="<?= BASE_URL ?>/reports.php?task_id=<?= $t['task_id'] ?>" class="glass-btn glass-btn-sm" title="View Full Report">
+                  <a href="<?= BASE_URL ?>/reports.php?task_id=<?= $t['task_id'] ?>" class="glass-btn glass-btn-sm"
+                    title="View Full Report">
                     Report
                   </a>
+                  <?php if (isAdmin()): ?>
+                    <button type="button" class="glass-btn glass-btn-sm glass-btn-danger" style="margin-left:0.25rem;"
+                      onclick="deleteTask(<?= $t['task_id'] ?>, '<?= htmlspecialchars(addslashes($t['title'])) ?>')"
+                      title="Permanently delete task and associated records">
+                      <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                      Delete
+                    </button>
+                  <?php endif; ?>
                 </td>
               </tr>
             <?php endforeach; ?>
@@ -368,40 +416,52 @@ require_once __DIR__ . '/includes/header.php';
       <div class="form-group">
         <label class="form-label" for="stage_logged_at">
           Activity Date & Time
-          <span style="font-weight:400;color:var(--text-muted);font-size:0.75rem;">(Adjust if recording delayed progress)</span>
+          <span style="font-weight:400;color:var(--text-muted);font-size:0.75rem;">(Adjust if recording delayed
+            progress)</span>
         </label>
         <div class="glass-date-group">
-          <input type="text" name="logged_at" id="stage_logged_at" class="glass-input flatpickr-input" placeholder="Select activity date & time" data-enable-time="true" data-default-today="true" required>
+          <input type="text" name="logged_at" id="stage_logged_at" class="glass-input flatpickr-input"
+            placeholder="Select activity date & time" data-enable-time="true" data-default-today="true" required>
           <button type="button" class="glass-date-toggle" data-toggle aria-label="Open Calendar">
-            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
           </button>
         </div>
       </div>
 
       <!-- Conditional Budget Fields (Visible when target is BUDGET_PENDING) -->
-      <div id="budget_request_fields" style="display:none;padding:1rem;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:12px;margin-bottom:1.25rem;">
+      <div id="budget_request_fields"
+        style="display:none;padding:1rem;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:12px;margin-bottom:1.25rem;">
         <div class="form-group">
           <label class="form-label" for="budget_amount">Required Budget Amount (RM)</label>
-          <input type="number" step="0.01" min="1" name="budget_amount" id="budget_amount" class="glass-input" placeholder="e.g. 250.00">
+          <input type="number" step="0.01" min="1" name="budget_amount" id="budget_amount" class="glass-input"
+            placeholder="e.g. 250.00">
         </div>
         <div class="form-group" style="margin-bottom:0;">
-          <label class="form-label" for="budget_justification">Budget Justification & Technical Bill of Materials</label>
-          <textarea name="budget_justification" id="budget_justification" class="glass-textarea" placeholder="Detail hardware items, vendor quotes, and component necessity..."></textarea>
+          <label class="form-label" for="budget_justification">Budget Justification & Technical Bill of
+            Materials</label>
+          <textarea name="budget_justification" id="budget_justification" class="glass-textarea"
+            placeholder="Detail hardware items, vendor quotes, and component necessity..."></textarea>
         </div>
       </div>
 
       <div class="form-group">
         <label class="form-label" for="stage_remarks">Detailed Process Remarks / Milestone Documentation</label>
-        <textarea name="remarks" id="stage_remarks" class="glass-textarea" placeholder="Detail technical progress, tests performed, or revision feedback..." required></textarea>
+        <textarea name="remarks" id="stage_remarks" class="glass-textarea"
+          placeholder="Detail technical progress, tests performed, or revision feedback..." required></textarea>
       </div>
 
       <!-- Additional Input: Reference Links & URLs for Future Reference -->
       <div class="form-group">
         <label class="form-label" for="stage_reference_urls">
           Reference Links / Technical URLs
-          <span style="font-weight:400;color:var(--text-muted);font-size:0.75rem;">(e.g. GitHub repos, Google Drive, datasheets — one per line)</span>
+          <span style="font-weight:400;color:var(--text-muted);font-size:0.75rem;">(e.g. GitHub repos, Google Drive,
+            datasheets — one per line)</span>
         </label>
-        <textarea name="reference_urls" id="stage_reference_urls" class="glass-textarea" rows="2" placeholder="e.g. https://github.com/kismec/project-repo&#10;https://docs.google.com/document/d/..."></textarea>
+        <textarea name="reference_urls" id="stage_reference_urls" class="glass-textarea" rows="2"
+          placeholder="e.g. https://github.com/kismec/project-repo&#10;https://docs.google.com/document/d/..."></textarea>
       </div>
 
       <!-- Media Evidence Upload Standard (Multi-Image / Multi-Video Dropzone) -->
@@ -410,14 +470,20 @@ require_once __DIR__ . '/includes/header.php';
           <span>Attach Media Evidence</span>
           <span style="font-weight:400;color:#818cf8;font-size:0.75rem;">Multiple images &amp; videos supported</span>
         </label>
-        
-        <div id="evidenceDropzone" class="glass-upload-zone" tabindex="0" role="button" aria-label="Upload multiple media evidence files">
-          <input type="file" id="evidence_files" name="evidence_files[]" multiple accept=".jpg,.jpeg,.png,.webp,.mp4,.mov" style="display:none;">
+
+        <div id="evidenceDropzone" class="glass-upload-zone" tabindex="0" role="button"
+          aria-label="Upload multiple media evidence files">
+          <input type="file" id="evidence_files" name="evidence_files[]" multiple
+            accept=".jpg,.jpeg,.png,.webp,.mp4,.mov" style="display:none;">
           <div class="upload-zone-icon">
-            <svg width="32" height="32" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            <svg width="32" height="32" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
           </div>
           <div class="upload-zone-title">Click to choose or Drag &amp; Drop multiple files here</div>
-          <div class="upload-zone-sub">Upload multiple images (JPG, PNG, WEBP) or videos (MP4, MOV). You can add files repeatedly.</div>
+          <div class="upload-zone-sub">Upload multiple images (JPG, PNG, WEBP) or videos (MP4, MOV). You can add files
+            repeatedly.</div>
           <span class="upload-badge">+ Add Multiple Images / Videos</span>
         </div>
 
