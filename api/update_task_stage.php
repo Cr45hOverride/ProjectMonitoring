@@ -49,28 +49,43 @@ if (!in_array($targetStage, $allowedStages, true)) {
     jsonResponse(['success' => false, 'message' => 'Invalid stage transition.'], 422);
 }
 
-// Role-based State Machine Verification
+// Perspective-based State Machine Verification (Hierarchical: Assignee vs Supervisor)
 $role = $currentUser['role'];
+$userId = (int)$currentUser['user_id'];
 $currentStage = $task['current_stage'];
 
-if ($role === 'intern') {
-    $internAllowedTransitions = [
+$isAssignee = ($userId === (int)$task['intern_id']);
+$isSupervisor = ($userId === (int)$task['supervisor_id']);
+$isElevated = in_array($role, ['admin', 'manager'], true);
+
+if ($role === 'hod' && !empty($currentUser['department'])) {
+    $stmtDept = $pdo->prepare('SELECT department FROM users WHERE user_id = :uid LIMIT 1');
+    $stmtDept->execute([':uid' => $task['intern_id']]);
+    $assigneeDept = $stmtDept->fetchColumn();
+    if (strtolower(trim((string)$assigneeDept)) === strtolower(trim($currentUser['department']))) {
+        $isElevated = true;
+    }
+}
+
+// 1. If user is acting as the assignee (Task Performer, e.g. Intern, Staff, or Supervisor assigned by HOD)
+if ($isAssignee && !$isElevated) {
+    $assigneeAllowedTransitions = [
         'ASSIGNED'                 => ['PLANNING'],
         'PLANNING'                 => ['BUDGET_PENDING', 'IN_EXECUTION'],
         'BUDGET_APPROVED'          => ['IN_EXECUTION'],
         'IN_EXECUTION'             => ['IN_EXECUTION', 'COMPLETED_PENDING_REVIEW'],
         'REVISION_REQUIRED'        => ['IN_EXECUTION', 'COMPLETED_PENDING_REVIEW'],
-        'COMPLETED_PENDING_REVIEW' => [] // intern cannot change until supervisor reviews
+        'COMPLETED_PENDING_REVIEW' => [] // Assignee cannot approve their own task
     ];
 
-    $permitted = $internAllowedTransitions[$currentStage] ?? [];
+    $permitted = $assigneeAllowedTransitions[$currentStage] ?? [];
     if (!in_array($targetStage, $permitted, true) && $targetStage !== $currentStage) {
-        jsonResponse(['success' => false, 'message' => "Interns cannot transition task from {$currentStage} to {$targetStage}."], 403);
+        jsonResponse(['success' => false, 'message' => "Assignees cannot transition task from {$currentStage} to {$targetStage}."], 403);
     }
-} elseif ($role === 'supervisor') {
-    // Supervisors can review completed tasks, approve budgets, or request revisions
-    if ($currentStage === 'COMPLETED_PENDING_REVIEW' && !in_array($targetStage, ['APPROVED', 'REVISION_REQUIRED'], true)) {
-        jsonResponse(['success' => false, 'message' => 'Supervisors must choose Approved or Revision Required.'], 422);
+} elseif ($isSupervisor || $isElevated) {
+    // 2. Supervisor / Reviewer evaluating the task
+    if ($currentStage === 'COMPLETED_PENDING_REVIEW' && !in_array($targetStage, ['APPROVED', 'REVISION_REQUIRED'], true) && $targetStage !== $currentStage) {
+        jsonResponse(['success' => false, 'message' => 'Reviewers must choose Approved or Revision Required.'], 422);
     }
 }
 

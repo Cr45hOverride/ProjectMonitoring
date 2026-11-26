@@ -424,10 +424,14 @@ ob_start();
       <td class="info-val"><?= htmlspecialchars($task['intern_email']) ?></td>
     </tr>
     <tr>
+      <td class="info-label">Assigned To</td>
+      <td class="info-val"><strong><?= htmlspecialchars($task['intern_name']) ?></strong> <span style="font-size:8pt;color:#64748b;">(<?= strtoupper($task['intern_role'] ?? 'INTERN') ?>)</span></td>
+      <td class="info-label">Supervising Officer</td>
+      <td class="info-val"><strong><?= htmlspecialchars($task['supervisor_name']) ?></strong> <span style="font-size:8pt;color:#64748b;">(<?= strtoupper($task['supervisor_role'] ?? 'SUPERVISOR') ?>)</span></td>
+    </tr>
+    <tr>
       <td class="info-label">Department</td>
-      <td class="info-val"><?= htmlspecialchars($task['intern_dept'] ?: 'Engineering & Smart Automation') ?></td>
-      <td class="info-label">Direct Supervisor</td>
-      <td class="info-val"><strong><?= htmlspecialchars($task['supervisor_name']) ?></strong></td>
+      <td class="info-val" colspan="3"><?= htmlspecialchars($task['intern_dept'] ?: ($task['supervisor_dept'] ?: 'KISMEC')) ?></td>
     </tr>
     <?php if (!empty($task['description'])): ?>
       <tr>
@@ -576,12 +580,12 @@ ob_start();
   <!-- Formal Supervisor Verification & Signature Block -->
   <div class="signature-container">
     <div style="font-weight:bold;font-size:10pt;color:#1e1b4b;margin-bottom:8pt;">
-      5. Formal Supervisor Verification & Institutional Endorsement
+      5. Formal Supervisory Verification & Institutional Endorsement
     </div>
     <p style="font-size:8.5pt;color:#475569;margin-bottom:12pt;line-height:1.4;">
-      I hereby attest and certify that the above intern task deliverables, technical process milestones, and media
-      evidence have been systematically examined, audited, and verified in compliance with KISMEC industrial engineering
-      and quality management benchmarks.
+      I hereby attest and certify that the above task deliverables, technical process milestones, and media
+      evidence have been systematically examined, audited, and verified in compliance with KISMEC engineering
+      and operational management benchmarks.
     </p>
 
     <table class="sig-table">
@@ -589,9 +593,9 @@ ob_start();
         <td class="sig-box">
           <div class="sig-line"></div>
           <div style="font-weight:bold;margin-top:4pt;"><?= htmlspecialchars($task['supervisor_name']) ?></div>
-          <div style="font-size:8pt;color:#64748b;">Assigned Engineering Supervisor</div>
+          <div style="font-size:8pt;color:#64748b;"><?= !empty($task['supervisor_role']) ? strtoupper($task['supervisor_role']) . ' &bull; ' : '' ?>Supervising Officer</div>
           <div style="font-size:8pt;color:#64748b;">
-            <?= htmlspecialchars($task['supervisor_dept'] ?: 'Smart Automation & IoT Centre') ?></div>
+            <?= htmlspecialchars($task['supervisor_dept'] ?: 'KISMEC') ?></div>
           <div style="font-size:8pt;color:#64748b;margin-top:2pt;">Date: <?= date('d F Y') ?></div>
         </td>
         <td class="sig-box" style="text-align:right;">

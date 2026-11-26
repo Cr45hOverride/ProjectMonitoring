@@ -111,16 +111,28 @@ $dbPort = '3306';
 
 ---
 
-## 5. Seeded Default Accounts
+## 5. Seeded Default Accounts & Multi-Level Hierarchy
 
-| Role | Email | Password | Full Name | Department |
-| :--- | :--- | :--- | :--- | :--- |
-| **Admin** | `admin@kismec.org.my` | `Admin@123` | System Administrator | Centre Management & IT |
-| **Supervisor** | `supervisor@kismec.org.my` | `Supervisor@123` | Ir. Ahmad Zulkifli Bin Othman | Smart Automation & IoT |
-| **Supervisor** | `azwin@kismec.org.my` | `Supervisor@123` | Azwin Bin Mohd | Smart Automation & IoT |
-| **Intern 1** | `intern@kismec.org.my` | `Intern@123` | Nurul Aisyah Binti Razak | Smart Automation & IoT |
-| **Intern 2** | `danial@kismec.org.my` | `Intern@123` | Muhammad Danial Bin Hafiz | Smart Automation & IoT |
-| **Intern 3** | `kamal@kismec.org.my` | `Intern@123` | Kamal Hidayat | Smart Automation & IoT |
+### Multi-Level Organizational Structure
+The system implements a flexible hierarchical reporting and supervision model:
+`Manager` &rarr; `Head of Department (HOD)` &rarr; `Supervisor` &rarr; `Staff / Intern`
+
+- **Dual-Perspective Task Portfolio:** Users in managerial or supervisory positions (such as Supervisors or HODs) experience a dual perspective:
+  - **Assigned to Me (My Tasks):** Tasks assigned to them by their superiors to execute.
+  - **Supervised by Me:** Tasks they assigned to their subordinates to monitor, review, approve budgets, and sign off.
+- **Segregation of Duties:** An assignee can submit plans, log milestone updates, and request budgets, but cannot approve their own budgets or sign off their own tasks.
+
+| Role | Email | Password | Full Name | Department | Reports To |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Admin** | `admin@kismec.org.my` | `Admin@123` | System Administrator | Centre Management & IT | — |
+| **Manager** | `manager@kismec.org.my` | `Manager@123` | Ts. Mohd Fairuz Bin Ariffin | Technical & Engineering Division | — |
+| **HOD** | `hod_td9@kismec.org.my` | `Hod@123` | Dr. Norazlina Binti Hashim | TD9 | Manager |
+| **Supervisor** | `azwin@kismec.org.my` | `Supervisor@123` | Azwin Bin Mohd | TD9 | HOD |
+| **Supervisor** | `supervisor@kismec.org.my` | `Supervisor@123` | Ir. Ahmad Zulkifli Bin Othman | Smart Automation & IoT | — |
+| **Staff** | `aminah@kismec.org.my` | `Staff@123` | Siti Aminah Binti Yusof | Training & Technical Operations | — |
+| **Intern 1** | `intern@kismec.org.my` | `Intern@123` | Nurul Aisyah Binti Razak | Smart Automation & IoT | Ir. Ahmad |
+| **Intern 2** | `danial@kismec.org.my` | `Intern@123` | Muhammad Danial Bin Hafiz | Smart Automation & IoT | Ir. Ahmad |
+| **Intern 3** | `kamal@kismec.org.my` | `Intern@123` | Kamal Hidayat | TD1 | Azwin |
 
 *Quick-click demo autofill buttons are available directly on the login page (`index.php`).*
 

@@ -1,7 +1,7 @@
 <?php
 /**
  * KISMEC Intern Task & Project Monitoring System
- * User & Role Management (Admin / Supervisor)
+ * User & Role Management (Admin / Manager)
  */
 
 declare(strict_types=1);
@@ -11,7 +11,7 @@ require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/report_helper.php';
 
-requireRole('admin');
+requireRole(['admin', 'manager']);
 
 $currentUser = getCurrentUser();
 $pdo = getDBConnection();
@@ -37,20 +37,26 @@ $whereSql = !empty($where) ? 'WHERE ' . implode(' AND ', $where) : '';
 $sql = "
     SELECT 
         u.*,
-        s.full_name AS supervisor_name
+        s.full_name AS supervisor_name,
+        s.role AS supervisor_role
     FROM users u
     LEFT JOIN users s ON u.supervisor_id = s.user_id
     $whereSql
-    ORDER BY u.role ASC, u.full_name ASC
+    ORDER BY FIELD(u.role, 'admin', 'manager', 'hod', 'supervisor', 'staff', 'intern'), u.full_name ASC
 ";
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $users = $stmt->fetchAll();
 
-// Fetch supervisors list for assignment dropdown
-$supervisors = $pdo->query('SELECT user_id, full_name, department FROM users WHERE role = "supervisor" AND status = "active" ORDER BY full_name ASC')->fetchAll();
+// Fetch supervisors / superiors list for assignment dropdown
+$supervisors = $pdo->query('
+    SELECT user_id, full_name, role, department 
+    FROM users 
+    WHERE role IN ("admin", "manager", "hod", "supervisor") AND status = "active" 
+    ORDER BY FIELD(role, "admin", "manager", "hod", "supervisor"), full_name ASC
+')->fetchAll();
 
-$pageTitle = 'User & Intern Management';
+$pageTitle = 'User & Hierarchy Management';
 require_once __DIR__ . '/includes/header.php';
 ?>
 
@@ -59,9 +65,9 @@ require_once __DIR__ . '/includes/header.php';
     <div>
       <h1 class="page-title">
         <svg width="28" height="28" fill="none" stroke="#6366f1" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-        User & Intern Directory
+        User & Hierarchy Directory
       </h1>
-      <p class="page-subtitle">Manage system users, assign supervisors to interns, and govern internship tenure dates.</p>
+      <p class="page-subtitle">Manage system users, define multi-level reporting hierarchy (Manager &rarr; HOD &rarr; Supervisor &rarr; Staff/Intern), and govern tenure dates.</p>
     </div>
 
     <button type="button" class="glass-btn glass-btn-primary" onclick="openUserModal()">
@@ -73,6 +79,8 @@ require_once __DIR__ . '/includes/header.php';
   <!-- Role Filter Pills -->
   <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem;flex-wrap:wrap;">
     <a href="<?= BASE_URL ?>/users.php" class="glass-btn glass-btn-sm <?= empty($filterRole) ? 'glass-btn-primary' : '' ?>">All Users</a>
+    <a href="<?= BASE_URL ?>/users.php?role=manager" class="glass-btn glass-btn-sm <?= $filterRole === 'manager' ? 'glass-btn-primary' : '' ?>">Managers</a>
+    <a href="<?= BASE_URL ?>/users.php?role=hod" class="glass-btn glass-btn-sm <?= $filterRole === 'hod' ? 'glass-btn-primary' : '' ?>">HODs</a>
     <a href="<?= BASE_URL ?>/users.php?role=supervisor" class="glass-btn glass-btn-sm <?= $filterRole === 'supervisor' ? 'glass-btn-primary' : '' ?>">Supervisors</a>
     <a href="<?= BASE_URL ?>/users.php?role=staff" class="glass-btn glass-btn-sm <?= $filterRole === 'staff' ? 'glass-btn-primary' : '' ?>">Staff</a>
     <a href="<?= BASE_URL ?>/users.php?role=intern" class="glass-btn glass-btn-sm <?= $filterRole === 'intern' ? 'glass-btn-primary' : '' ?>">Interns</a>
@@ -88,7 +96,7 @@ require_once __DIR__ . '/includes/header.php';
             <th>User</th>
             <th>Role</th>
             <th>Department</th>
-            <th>Assigned Supervisor</th>
+            <th>Reports To / Supervisor</th>
             <th>Internship Tenure</th>
             <th>Status</th>
             <th>Created At</th>
@@ -117,13 +125,40 @@ require_once __DIR__ . '/includes/header.php';
                   </div>
                 </td>
                 <td>
-                  <span class="glass-badge <?= $u['role'] === 'admin' ? 'glass-badge-purple' : ($u['role'] === 'supervisor' ? 'glass-badge-indigo' : ($u['role'] === 'staff' ? 'glass-badge-blue' : 'glass-badge-teal')) ?>">
-                    <?= ucfirst($u['role']) ?>
+                  <?php
+                    $roleBadgeClass = match($u['role']) {
+                        'admin' => 'glass-badge-purple',
+                        'manager' => 'glass-badge-warning',
+                        'hod' => 'glass-badge-indigo',
+                        'supervisor' => 'glass-badge-blue',
+                        'staff' => 'glass-badge-teal',
+                        'intern' => 'glass-badge-cyan',
+                        default => 'glass-badge-blue',
+                    };
+                    $roleLabel = match($u['role']) {
+                        'admin' => 'Admin',
+                        'manager' => 'Manager',
+                        'hod' => 'HOD',
+                        'supervisor' => 'Supervisor',
+                        'staff' => 'Staff',
+                        'intern' => 'Intern',
+                        default => ucfirst($u['role']),
+                    };
+                  ?>
+                  <span class="glass-badge <?= $roleBadgeClass ?>">
+                    <?= $roleLabel ?>
                   </span>
                 </td>
                 <td><?= htmlspecialchars($u['department'] ?: '—') ?></td>
                 <td>
-                  <?= !empty($u['supervisor_name']) ? htmlspecialchars($u['supervisor_name']) : '<span style="color:var(--text-muted);">—</span>' ?>
+                  <?php if (!empty($u['supervisor_name'])): ?>
+                    <span style="color:#e2e8f0;font-weight:500;"><?= htmlspecialchars($u['supervisor_name']) ?></span>
+                    <?php if (!empty($u['supervisor_role'])): ?>
+                      <small style="color:var(--text-muted);display:block;font-size:0.75rem;">(<?= strtoupper($u['supervisor_role']) ?>)</small>
+                    <?php endif; ?>
+                  <?php else: ?>
+                    <span style="color:var(--text-muted);">—</span>
+                  <?php endif; ?>
                 </td>
                 <td>
                   <?php if ($u['role'] === 'intern' && (!empty($u['intern_start_date']) || !empty($u['intern_end_date']))): ?>
@@ -194,6 +229,8 @@ require_once __DIR__ . '/includes/header.php';
             <option value="intern">Intern</option>
             <option value="staff">Staff</option>
             <option value="supervisor">Supervisor</option>
+            <option value="hod">Head of Department (HOD)</option>
+            <option value="manager">Manager</option>
             <option value="admin">Administrator</option>
           </select>
         </div>
@@ -204,20 +241,26 @@ require_once __DIR__ . '/includes/header.php';
         </div>
       </div>
 
-      <!-- Intern Specific Fields -->
-      <div id="intern_specific_fields" style="display:none;padding:1rem;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:12px;margin-bottom:1.25rem;">
-        <div class="form-group">
-          <label class="form-label" for="user_supervisor_id">Assign Direct Supervisor</label>
+      <!-- Supervisor / Reporting Hierarchy Fields -->
+      <div id="reporting_hierarchy_fields" style="display:none;padding:1rem;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.1);border-radius:12px;margin-bottom:1.25rem;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" for="user_supervisor_id" id="supervisor_label">Reports To / Direct Superior</label>
           <select name="supervisor_id" id="user_supervisor_id" class="glass-select">
-            <option value="">-- No Direct Supervisor --</option>
+            <option value="">-- No Direct Superior --</option>
             <?php foreach ($supervisors as $sp): ?>
               <option value="<?= $sp['user_id'] ?>">
-                <?= htmlspecialchars($sp['full_name']) ?> (<?= htmlspecialchars($sp['department'] ?: 'Supervisor') ?>)
+                <?= htmlspecialchars($sp['full_name']) ?> (<?= strtoupper($sp['role']) ?> &bull; <?= htmlspecialchars($sp['department'] ?: 'General') ?>)
               </option>
             <?php endforeach; ?>
           </select>
+          <small style="color:var(--text-muted);font-size:0.75rem;margin-top:0.35rem;display:block;">
+            Interns report to Supervisors/HODs; Supervisors report to HODs; HODs report to Managers.
+          </small>
         </div>
+      </div>
 
+      <!-- Intern Specific Fields (Tenure Dates) -->
+      <div id="intern_specific_fields" style="display:none;padding:1rem;background:rgba(99,102,241,0.05);border:1px solid rgba(99,102,241,0.2);border-radius:12px;margin-bottom:1.25rem;">
         <!-- Mandatory Date Input Standard for intern_start_date & intern_end_date -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
           <div class="form-group" style="margin-bottom:0;">

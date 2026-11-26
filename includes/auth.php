@@ -88,6 +88,14 @@ function isAdmin(): bool {
     return isLoggedIn() && (($_SESSION['user_role'] ?? '') === 'admin');
 }
 
+function isManager(): bool {
+    return isLoggedIn() && (($_SESSION['user_role'] ?? '') === 'manager');
+}
+
+function isHod(): bool {
+    return isLoggedIn() && (($_SESSION['user_role'] ?? '') === 'hod');
+}
+
 function isSupervisor(): bool {
     return isLoggedIn() && (($_SESSION['user_role'] ?? '') === 'supervisor');
 }
@@ -101,6 +109,13 @@ function isIntern(): bool {
 }
 
 /**
+ * Check if the user is authorized to assign tasks to subordinates
+ */
+function canAssignTasks(): bool {
+    return isLoggedIn() && in_array($_SESSION['user_role'] ?? '', ['admin', 'manager', 'hod', 'supervisor'], true);
+}
+
+/**
  * Check if the current user has access to a specific task
  */
 function hasTaskAccess(int $taskId, ?array $user = null): bool {
@@ -110,12 +125,19 @@ function hasTaskAccess(int $taskId, ?array $user = null): bool {
     if (!$user) {
         return false;
     }
-    if ($user['role'] === 'admin' || $user['role'] === 'staff') {
+    if ($user['role'] === 'admin' || $user['role'] === 'manager') {
         return true;
     }
 
     $pdo = getDBConnection();
-    $stmt = $pdo->prepare('SELECT supervisor_id, intern_id FROM tasks WHERE task_id = :task_id LIMIT 1');
+    $stmt = $pdo->prepare('
+        SELECT t.supervisor_id, t.intern_id, i.department AS intern_dept, s.department AS sup_dept
+        FROM tasks t 
+        LEFT JOIN users i ON t.intern_id = i.user_id
+        LEFT JOIN users s ON t.supervisor_id = s.user_id
+        WHERE t.task_id = :task_id 
+        LIMIT 1
+    ');
     $stmt->execute([':task_id' => $taskId]);
     $task = $stmt->fetch();
 
@@ -123,12 +145,22 @@ function hasTaskAccess(int $taskId, ?array $user = null): bool {
         return false;
     }
 
-    if ($user['role'] === 'supervisor') {
-        return (int)$task['supervisor_id'] === $user['user_id'];
+    // Direct participation (either as the supervisor or the assignee)
+    if ((int)$task['supervisor_id'] === $user['user_id'] || (int)$task['intern_id'] === $user['user_id']) {
+        return true;
     }
 
-    if ($user['role'] === 'intern') {
-        return (int)$task['intern_id'] === $user['user_id'];
+    // HOD has oversight of tasks within their department
+    if ($user['role'] === 'hod') {
+        $userDept = strtolower(trim($user['department'] ?? ''));
+        $taskDept = strtolower(trim($task['intern_dept'] ?? $task['sup_dept'] ?? ''));
+        if (!empty($userDept) && !empty($taskDept) && $userDept === $taskDept) {
+            return true;
+        }
+    }
+
+    if ($user['role'] === 'staff') {
+        return true;
     }
 
     return false;

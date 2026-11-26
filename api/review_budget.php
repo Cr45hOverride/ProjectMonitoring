@@ -12,7 +12,7 @@ require_once __DIR__ . '/../config/setting.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 
-requireRole(['admin', 'supervisor']);
+requireRole(['admin', 'manager', 'hod', 'supervisor']);
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     jsonResponse(['success' => false, 'message' => 'Invalid request method.'], 405);
@@ -48,9 +48,18 @@ if (!$budget) {
     jsonResponse(['success' => false, 'message' => 'Budget request not found.'], 404);
 }
 
-// If supervisor, ensure supervisor owns the task
-if ($currentUser['role'] === 'supervisor' && (int)$budget['supervisor_id'] !== $currentUser['user_id']) {
-    jsonResponse(['success' => false, 'message' => 'You can only review budgets for your own supervised tasks.'], 403);
+// Assignee cannot approve their own budget request
+if ((int)$budget['intern_id'] === $currentUser['user_id']) {
+    jsonResponse(['success' => false, 'message' => 'Assignees cannot approve their own budget requests.'], 403);
+}
+
+// Check review authority: must be task supervisor, admin, manager, or HOD with task access
+$isTaskSupervisor = ((int)$budget['supervisor_id'] === $currentUser['user_id']);
+$isElevated = in_array($currentUser['role'], ['admin', 'manager'], true);
+$isHodOfTask = ($currentUser['role'] === 'hod' && hasTaskAccess((int)$budget['task_id'], $currentUser));
+
+if (!$isTaskSupervisor && !$isElevated && !$isHodOfTask) {
+    jsonResponse(['success' => false, 'message' => 'You do not have permission to review budgets for this task.'], 403);
 }
 
 try {

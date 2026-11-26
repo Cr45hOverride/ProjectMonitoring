@@ -245,15 +245,21 @@ function openStageModal(task) {
   document.getElementById('current_stage_badge').innerHTML = task.current_stage_badge || task.current_stage;
   document.getElementById('current_task_stage_val').value = task.current_stage;
 
-  // Populate allowed next stages based on role and current stage
+  // Populate allowed next stages based on user perspective (assignee vs supervisor/reviewer) and current stage
   const stageSelect = document.getElementById('target_stage_select');
   stageSelect.innerHTML = '';
 
   const userRole = window.APP_USER_ROLE || 'intern';
+  const curUserId = Number(window.APP_USER_ID || 0);
   const cur = task.current_stage;
   let options = [];
 
-  if (userRole === 'intern') {
+  const isAssignee = (Number(task.intern_id) === curUserId || userRole === 'intern' || userRole === 'staff');
+  const isSupervisor = (Number(task.supervisor_id) === curUserId);
+  const isElevated = (userRole === 'admin' || userRole === 'manager' || userRole === 'hod');
+
+  // 1. Assignee perspective (Task Performer)
+  if (isAssignee) {
     if (cur === 'ASSIGNED') {
       options.push({ value: 'PLANNING', label: 'Start Planning (Submit Plan/Milestones)' });
     } else if (cur === 'PLANNING') {
@@ -268,21 +274,24 @@ function openStageModal(task) {
       options.push({ value: 'IN_EXECUTION', label: 'Resume Execution / Apply Fixes' });
       options.push({ value: 'COMPLETED_PENDING_REVIEW', label: 'Resubmit for Final Approval' });
     }
-  } else if (userRole === 'supervisor' || userRole === 'admin') {
-    if (cur === 'ASSIGNED') {
+  }
+
+  // 2. Supervisor / Reviewer perspective
+  if (isSupervisor || isElevated) {
+    if (cur === 'ASSIGNED' && !isAssignee) {
       options.push({ value: 'PLANNING', label: 'Move to Planning' });
-    } else if (cur === 'PLANNING') {
+    } else if (cur === 'PLANNING' && !isAssignee) {
       options.push({ value: 'IN_EXECUTION', label: 'Approve to Start Execution Directly' });
     } else if (cur === 'BUDGET_PENDING') {
       options.push({ value: 'BUDGET_APPROVED', label: 'Approve Budget & Move to Execution' });
       options.push({ value: 'PLANNING', label: 'Reject Budget (Return to Planning)' });
-    } else if (cur === 'IN_EXECUTION') {
+    } else if (cur === 'IN_EXECUTION' && !isAssignee) {
       options.push({ value: 'IN_EXECUTION', label: 'Supervisor Progress Inspection Note' });
       options.push({ value: 'COMPLETED_PENDING_REVIEW', label: 'Mark Ready for Review' });
     } else if (cur === 'COMPLETED_PENDING_REVIEW') {
       options.push({ value: 'APPROVED', label: 'Sign-off & Approve Task (Complete)' });
       options.push({ value: 'REVISION_REQUIRED', label: 'Request Revisions (Specify in Remarks)' });
-    } else if (cur === 'REVISION_REQUIRED') {
+    } else if (cur === 'REVISION_REQUIRED' && !isAssignee) {
       options.push({ value: 'APPROVED', label: 'Bypass & Approve' });
     }
   }
@@ -728,8 +737,15 @@ function openUserModal(userData = null) {
 function toggleInternFields() {
   const roleSelect = document.getElementById('user_role');
   const internFields = document.getElementById('intern_specific_fields');
-  if (roleSelect && internFields) {
-    internFields.style.display = roleSelect.value === 'intern' ? 'block' : 'none';
+  const reportingFields = document.getElementById('reporting_hierarchy_fields');
+  if (roleSelect) {
+    const role = roleSelect.value;
+    if (internFields) {
+      internFields.style.display = role === 'intern' ? 'block' : 'none';
+    }
+    if (reportingFields) {
+      reportingFields.style.display = (role !== 'admin') ? 'block' : 'none';
+    }
   }
 }
 

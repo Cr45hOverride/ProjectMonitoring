@@ -1,7 +1,7 @@
 <?php
 /**
  * KISMEC Intern Task & Project Monitoring System
- * Task & Project Portfolio Management
+ * Task & Project Portfolio Management (Multi-Level Hierarchy)
  */
 
 declare(strict_types=1);
@@ -16,21 +16,80 @@ requireLogin();
 $currentUser = getCurrentUser();
 $pdo = getDBConnection();
 
+$myUid = (int)$currentUser['user_id'];
+$myRole = $currentUser['role'];
+$myDept = trim($currentUser['department'] ?? '');
+
 // Fetch filter parameters
+$filterView = trim($_GET['view'] ?? '');
 $filterStage = trim($_GET['stage'] ?? '');
 $filterPriority = trim($_GET['priority'] ?? '');
 $filterSla = trim($_GET['sla'] ?? '');
 $filterSearch = trim($_GET['q'] ?? '');
 
+// Portfolio Counts for View Perspective Tabs
+$stmtCountAssigned = $pdo->prepare('SELECT COUNT(*) FROM tasks WHERE intern_id = :uid');
+$stmtCountAssigned->execute([':uid' => $myUid]);
+$countAssigned = (int)$stmtCountAssigned->fetchColumn();
+
+$stmtCountSupervised = $pdo->prepare('SELECT COUNT(*) FROM tasks WHERE supervisor_id = :uid');
+$stmtCountSupervised->execute([':uid' => $myUid]);
+$countSupervised = (int)$stmtCountSupervised->fetchColumn();
+
+if ($myRole === 'admin' || $myRole === 'manager') {
+    $countTotal = (int)$pdo->query('SELECT COUNT(*) FROM tasks')->fetchColumn();
+} elseif ($myRole === 'hod') {
+    $stmtCountHod = $pdo->prepare('
+        SELECT COUNT(DISTINCT t.task_id) FROM tasks t
+        LEFT JOIN users i ON t.intern_id = i.user_id
+        LEFT JOIN users s ON t.supervisor_id = s.user_id
+        WHERE t.supervisor_id = :uid OR t.intern_id = :uid OR i.department = :dept OR s.department = :dept
+    ');
+    $stmtCountHod->execute([':uid' => $myUid, ':dept' => $myDept]);
+    $countTotal = (int)$stmtCountHod->fetchColumn();
+} elseif ($myRole === 'supervisor') {
+    $stmtCountSup = $pdo->prepare('SELECT COUNT(*) FROM tasks WHERE supervisor_id = :uid OR intern_id = :uid');
+    $stmtCountSup->execute([':uid' => $myUid]);
+    $countTotal = (int)$stmtCountSup->fetchColumn();
+} else {
+    $countTotal = $countAssigned;
+}
+
 $where = [];
 $params = [];
 
-if (isSupervisor()) {
-  $where[] = 't.supervisor_id = :uid';
-  $params[':uid'] = $currentUser['user_id'];
-} elseif (isIntern()) {
-  $where[] = 't.intern_id = :uid';
-  $params[':uid'] = $currentUser['user_id'];
+// Apply hierarchical perspective filtering
+if (isIntern() || isStaff()) {
+    $where[] = 't.intern_id = :my_uid';
+    $params[':my_uid'] = $myUid;
+} else {
+    if ($filterView === 'assigned') {
+        $where[] = 't.intern_id = :my_uid';
+        $params[':my_uid'] = $myUid;
+    } elseif ($filterView === 'supervised') {
+        $where[] = 't.supervisor_id = :my_uid';
+        $params[':my_uid'] = $myUid;
+    } elseif ($filterView === 'dept' && isHod() && !empty($myDept)) {
+        $where[] = '(i.department = :my_dept OR s.department = :my_dept OR t.supervisor_id = :my_uid OR t.intern_id = :my_uid)';
+        $params[':my_dept'] = $myDept;
+        $params[':my_uid'] = $myUid;
+    } else {
+        // Default View: show all relevant tasks
+        if ($myRole === 'supervisor') {
+            $where[] = '(t.supervisor_id = :my_uid OR t.intern_id = :my_uid)';
+            $params[':my_uid'] = $myUid;
+        } elseif ($myRole === 'hod') {
+            if (!empty($myDept)) {
+                $where[] = '(i.department = :my_dept OR s.department = :my_dept OR t.supervisor_id = :my_uid OR t.intern_id = :my_uid)';
+                $params[':my_dept'] = $myDept;
+                $params[':my_uid'] = $myUid;
+            } else {
+                $where[] = '(t.supervisor_id = :my_uid OR t.intern_id = :my_uid)';
+                $params[':my_uid'] = $myUid;
+            }
+        }
+        // Admin and Manager see all tasks by default
+    }
 }
 
 if (!empty($filterStage)) {
@@ -53,16 +112,15 @@ $whereSql = !empty($where) ? 'WHERE ' . implode(' AND ', $where) : '';
 $sql = "
     SELECT 
         t.*,
-        CASE 
-            WHEN s.role = 'supervisor' THEN s.full_name
-            WHEN sup.user_id IS NOT NULL THEN sup.full_name
-            ELSE s.full_name 
-        END AS supervisor_name,
-        i.full_name AS intern_name
+        COALESCE(s.full_name, 'Unassigned') AS supervisor_name,
+        s.role AS supervisor_role,
+        s.department AS supervisor_dept,
+        i.full_name AS intern_name,
+        i.role AS intern_role,
+        i.department AS intern_dept
     FROM tasks t
     LEFT JOIN users s ON t.supervisor_id = s.user_id
     INNER JOIN users i ON t.intern_id = i.user_id
-    LEFT JOIN users sup ON i.supervisor_id = sup.user_id
     $whereSql
     ORDER BY t.created_at DESC
 ";
@@ -89,20 +147,58 @@ foreach ($tasks as $task) {
   }
 }
 
-// Fetch active interns for Task Assignment dropdown (Supervisor / Admin)
-$interns = [];
+// Fetch active assignees and supervisors for Task Assignment modal
+$assignees = [];
 $supervisors = [];
-if (!isIntern()) {
-  $sqlInterns = 'SELECT user_id, full_name, department, supervisor_id FROM users WHERE role = "intern" AND status = "active"';
-  if (isSupervisor()) {
-    $sqlInterns .= ' AND (supervisor_id = ' . (int) $currentUser['user_id'] . ' OR supervisor_id IS NULL)';
-  }
-  $sqlInterns .= ' ORDER BY full_name ASC';
-  $interns = $pdo->query($sqlInterns)->fetchAll();
+if (canAssignTasks()) {
+    if ($myRole === 'admin') {
+        $assignees = $pdo->query('
+            SELECT user_id, full_name, role, department, supervisor_id 
+            FROM users 
+            WHERE status = "active" 
+            ORDER BY FIELD(role, "manager", "hod", "supervisor", "staff", "intern"), full_name ASC
+        ')->fetchAll();
+    } elseif ($myRole === 'manager') {
+        $assignees = $pdo->query('
+            SELECT user_id, full_name, role, department, supervisor_id 
+            FROM users 
+            WHERE role IN ("hod", "supervisor", "staff", "intern") AND status = "active" 
+            ORDER BY FIELD(role, "hod", "supervisor", "staff", "intern"), full_name ASC
+        ')->fetchAll();
+    } elseif ($myRole === 'hod') {
+        $stmtA = $pdo->prepare('
+            SELECT user_id, full_name, role, department, supervisor_id 
+            FROM users 
+            WHERE role IN ("supervisor", "staff", "intern") AND status = "active"
+              AND (department = :dept OR supervisor_id = :uid OR :dept = "")
+            ORDER BY FIELD(role, "supervisor", "staff", "intern"), full_name ASC
+        ');
+        $stmtA->execute([':dept' => $myDept, ':uid' => $myUid]);
+        $assignees = $stmtA->fetchAll();
+        if (empty($assignees)) {
+            $assignees = $pdo->query('SELECT user_id, full_name, role, department, supervisor_id FROM users WHERE role IN ("supervisor", "staff", "intern") AND status = "active" ORDER BY full_name ASC')->fetchAll();
+        }
+    } elseif ($myRole === 'supervisor') {
+        $stmtA = $pdo->prepare('
+            SELECT user_id, full_name, role, department, supervisor_id 
+            FROM users 
+            WHERE role IN ("staff", "intern") AND status = "active"
+              AND (supervisor_id = :uid OR department = :dept OR supervisor_id IS NULL)
+            ORDER BY FIELD(role, "staff", "intern"), full_name ASC
+        ');
+        $stmtA->execute([':uid' => $myUid, ':dept' => $myDept]);
+        $assignees = $stmtA->fetchAll();
+        if (empty($assignees)) {
+            $assignees = $pdo->query('SELECT user_id, full_name, role, department, supervisor_id FROM users WHERE role IN ("staff", "intern") AND status = "active" ORDER BY full_name ASC')->fetchAll();
+        }
+    }
 
-  if (!isSupervisor()) {
-    $supervisors = $pdo->query('SELECT user_id, full_name, department FROM users WHERE role = "supervisor" AND status = "active" ORDER BY full_name ASC')->fetchAll();
-  }
+    $supervisors = $pdo->query('
+        SELECT user_id, full_name, role, department 
+        FROM users 
+        WHERE role IN ("admin", "manager", "hod", "supervisor") AND status = "active" 
+        ORDER BY FIELD(role, "manager", "hod", "supervisor", "admin"), full_name ASC
+    ')->fetchAll();
 }
 
 $pageTitle = 'Task & Project Portfolio';
@@ -119,10 +215,10 @@ require_once __DIR__ . '/includes/header.php';
         </svg>
         Tasks & Project Portfolios
       </h1>
-      <p class="page-subtitle">Track stage progression, review milestone evidence, and govern SLA deadlines.</p>
+      <p class="page-subtitle">Track stage progression, review milestone evidence, and govern multi-level task supervision.</p>
     </div>
 
-    <?php if (!isIntern()): ?>
+    <?php if (canAssignTasks()): ?>
       <button type="button" class="glass-btn glass-btn-primary" onclick="openModal('modalCreateTask')">
         <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -132,13 +228,40 @@ require_once __DIR__ . '/includes/header.php';
     <?php endif; ?>
   </div>
 
+  <!-- Dual Perspective Tabs (Assigned to Me vs Supervised by Me) -->
+  <?php if (!isIntern() && !isStaff()): ?>
+    <div style="display:flex;gap:0.5rem;margin-bottom:1.25rem;flex-wrap:wrap;align-items:center;">
+      <a href="<?= BASE_URL ?>/tasks.php<?= !empty($filterStage) ? '?stage=' . urlencode($filterStage) : '' ?>" class="glass-btn glass-btn-sm <?= empty($filterView) ? 'glass-btn-primary' : '' ?>">
+        <?= ($myRole === 'admin' || $myRole === 'manager') ? 'All Organization Tasks' : (($myRole === 'hod') ? 'Department Overview' : 'All My Relevant Tasks') ?>
+        <span class="glass-badge" style="margin-left:0.35rem;padding:0.15rem 0.45rem;font-size:0.75rem;"><?= $countTotal ?></span>
+      </a>
+      <a href="<?= BASE_URL ?>/tasks.php?view=assigned<?= !empty($filterStage) ? '&stage=' . urlencode($filterStage) : '' ?>" class="glass-btn glass-btn-sm <?= $filterView === 'assigned' ? 'glass-btn-primary' : '' ?>">
+        Assigned to Me (My Tasks)
+        <span class="glass-badge glass-badge-indigo" style="margin-left:0.35rem;padding:0.15rem 0.45rem;font-size:0.75rem;"><?= $countAssigned ?></span>
+      </a>
+      <a href="<?= BASE_URL ?>/tasks.php?view=supervised<?= !empty($filterStage) ? '&stage=' . urlencode($filterStage) : '' ?>" class="glass-btn glass-btn-sm <?= $filterView === 'supervised' ? 'glass-btn-primary' : '' ?>">
+        Supervised by Me
+        <span class="glass-badge glass-badge-purple" style="margin-left:0.35rem;padding:0.15rem 0.45rem;font-size:0.75rem;"><?= $countSupervised ?></span>
+      </a>
+      <?php if ($myRole === 'hod' && !empty($myDept)): ?>
+        <a href="<?= BASE_URL ?>/tasks.php?view=dept<?= !empty($filterStage) ? '&stage=' . urlencode($filterStage) : '' ?>" class="glass-btn glass-btn-sm <?= $filterView === 'dept' ? 'glass-btn-primary' : '' ?>">
+          <?= htmlspecialchars($myDept) ?> Centre
+        </a>
+      <?php endif; ?>
+    </div>
+  <?php endif; ?>
+
   <!-- Search & Filter Controls -->
   <div class="glass-panel" style="margin-bottom:1.5rem;padding:1rem 1.25rem;">
     <form method="GET" action="<?= BASE_URL ?>/tasks.php"
       style="display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;">
+      <?php if (!empty($filterView)): ?>
+        <input type="hidden" name="view" value="<?= htmlspecialchars($filterView) ?>">
+      <?php endif; ?>
+
       <div style="flex:2;min-width:200px;">
         <input type="text" name="q" value="<?= htmlspecialchars($filterSearch) ?>" class="glass-input"
-          placeholder="Search task title, description, or intern...">
+          placeholder="Search task title, description, or assignee...">
       </div>
 
       <div style="flex:1;min-width:140px;">
@@ -178,7 +301,7 @@ require_once __DIR__ . '/includes/header.php';
 
       <div style="display:flex;gap:0.5rem;">
         <button type="submit" class="glass-btn glass-btn-primary glass-btn-sm">Filter</button>
-        <a href="<?= BASE_URL ?>/tasks.php" class="glass-btn glass-btn-sm">Reset</a>
+        <a href="<?= BASE_URL ?>/tasks.php<?= !empty($filterView) ? '?view=' . urlencode($filterView) : '' ?>" class="glass-btn glass-btn-sm">Reset</a>
       </div>
     </form>
   </div>
@@ -191,8 +314,8 @@ require_once __DIR__ . '/includes/header.php';
           <tr>
             <th>Ref</th>
             <th>Task Title & Scope</th>
-            <th>Assign to</th>
-            <th>Supervisor</th>
+            <th>Assigned To</th>
+            <th>Supervising Officer</th>
             <th>Current Stage</th>
             <th>Priority</th>
             <th>Start Date</th>
@@ -222,8 +345,32 @@ require_once __DIR__ . '/includes/header.php';
                     </p>
                   <?php endif; ?>
                 </td>
-                <td><?= htmlspecialchars($t['intern_name']) ?></td>
-                <td><?= htmlspecialchars($t['supervisor_name']) ?></td>
+                <td>
+                  <strong style="color:#f8fafc;"><?= htmlspecialchars($t['intern_name']) ?></strong>
+                  <?php if (!empty($t['intern_role'])): ?>
+                    <small style="color:var(--text-muted);display:block;font-size:0.7rem;text-transform:uppercase;">
+                      <?= htmlspecialchars($t['intern_role']) ?>
+                    </small>
+                  <?php endif; ?>
+                  <?php if ((int)$t['intern_id'] === $myUid): ?>
+                    <span class="glass-badge glass-badge-indigo" style="font-size:0.68rem;padding:0.1rem 0.4rem;display:inline-block;margin-top:0.2rem;">
+                      You (Assignee)
+                    </span>
+                  <?php endif; ?>
+                </td>
+                <td>
+                  <span style="color:#e2e8f0;"><?= htmlspecialchars($t['supervisor_name']) ?></span>
+                  <?php if (!empty($t['supervisor_role'])): ?>
+                    <small style="color:var(--text-muted);display:block;font-size:0.7rem;text-transform:uppercase;">
+                      <?= htmlspecialchars($t['supervisor_role']) ?>
+                    </small>
+                  <?php endif; ?>
+                  <?php if ((int)$t['supervisor_id'] === $myUid): ?>
+                    <span class="glass-badge glass-badge-purple" style="font-size:0.68rem;padding:0.1rem 0.4rem;display:inline-block;margin-top:0.2rem;">
+                      You (Supervisor)
+                    </span>
+                  <?php endif; ?>
+                </td>
                 <td><?= formatStageBadge($t['current_stage']) ?></td>
                 <td><?= formatPriorityBadge($t['priority']) ?></td>
                 <td><small><?= formatDisplayDate($t['start_date']) ?></small></td>
@@ -238,7 +385,9 @@ require_once __DIR__ . '/includes/header.php';
                     'task_id' => $t['task_id'],
                     'title' => $t['title'],
                     'current_stage' => $t['current_stage'],
-                    'current_stage_badge' => formatStageBadge($t['current_stage'])
+                    'current_stage_badge' => formatStageBadge($t['current_stage']),
+                    'intern_id' => (int)$t['intern_id'],
+                    'supervisor_id' => (int)$t['supervisor_id']
                   ]), ENT_QUOTES, 'UTF-8') ?>)">
                     Update
                   </button>
@@ -267,8 +416,8 @@ require_once __DIR__ . '/includes/header.php';
   </div>
 </main>
 
-<!-- Modal: Assign New Task (Supervisor / Admin) -->
-<?php if (!isIntern()): ?>
+<!-- Modal: Assign New Task (Supervisor / HOD / Manager / Admin) -->
+<?php if (canAssignTasks()): ?>
   <div id="modalCreateTask" class="glass-modal-backdrop">
     <div class="glass-modal-content">
       <div class="modal-header">
@@ -284,30 +433,31 @@ require_once __DIR__ . '/includes/header.php';
         </div>
 
         <div class="form-group">
-          <label class="form-label" for="task_intern_id">Assign to Intern</label>
+          <label class="form-label" for="task_intern_id">Assign To (Subordinate / Assignee)</label>
           <select name="intern_id" id="task_intern_id" class="glass-select" required>
-            <option value="">-- Select Intern --</option>
-            <?php foreach ($interns as $in): ?>
-              <option value="<?= $in['user_id'] ?>" data-supervisor-id="<?= $in['supervisor_id'] ?? '' ?>">
-                <?= htmlspecialchars($in['full_name']) ?> (<?= htmlspecialchars($in['department'] ?: 'Intern') ?>)
+            <option value="">-- Select Assignee --</option>
+            <?php foreach ($assignees as $as): ?>
+              <option value="<?= $as['user_id'] ?>" data-supervisor-id="<?= $as['supervisor_id'] ?? '' ?>">
+                <?= htmlspecialchars($as['full_name']) ?> (<?= strtoupper($as['role']) ?> &bull; <?= htmlspecialchars($as['department'] ?: 'General') ?>)
               </option>
             <?php endforeach; ?>
           </select>
         </div>
 
-        <?php if (!isSupervisor()): ?>
-          <div class="form-group">
-            <label class="form-label" for="task_supervisor_id">Direct Supervisor</label>
-            <select name="supervisor_id" id="task_supervisor_id" class="glass-select">
-              <option value="">-- Auto-detect from Intern Profile --</option>
-              <?php foreach ($supervisors as $sp): ?>
-                <option value="<?= $sp['user_id'] ?>">
-                  <?= htmlspecialchars($sp['full_name']) ?> (<?= htmlspecialchars($sp['department'] ?: 'Supervisor') ?>)
-                </option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-        <?php endif; ?>
+        <div class="form-group">
+          <label class="form-label" for="task_supervisor_id">Supervising Officer / Reviewer</label>
+          <select name="supervisor_id" id="task_supervisor_id" class="glass-select">
+            <option value="">-- Auto-detect / Default to You --</option>
+            <?php foreach ($supervisors as $sp): ?>
+              <option value="<?= $sp['user_id'] ?>" <?= $sp['user_id'] === $myUid ? 'selected' : '' ?>>
+                <?= htmlspecialchars($sp['full_name']) ?> (<?= strtoupper($sp['role']) ?> &bull; <?= htmlspecialchars($sp['department'] ?: 'General') ?>)
+              </option>
+            <?php endforeach; ?>
+          </select>
+          <small style="color:var(--text-muted);font-size:0.75rem;margin-top:0.35rem;display:block;">
+            The designated supervisor who oversees progress, approves budgets, and performs final sign-off.
+          </small>
+        </div>
 
         <div class="form-group">
           <label class="form-label" for="task_priority">Priority</label>
@@ -363,6 +513,120 @@ require_once __DIR__ . '/includes/header.php';
     </div>
   </div>
 <?php endif; ?>
+
+<!-- Slide-over / Modal: Update Task Stage & Upload Evidence -->
+<div id="modalUpdateStage" class="glass-modal-backdrop">
+  <div class="glass-modal-content">
+    <div class="modal-header">
+      <div>
+        <h3 class="modal-title">Progress Stage & Upload Evidence</h3>
+        <p id="task_modal_title" style="font-size:0.85rem;color:var(--text-muted);margin-top:0.2rem;"></p>
+      </div>
+      <button type="button" class="modal-close" data-close-modal>&times;</button>
+    </div>
+
+    <form id="formUpdateStage" enctype="multipart/form-data">
+      <input type="hidden" name="task_id" id="update_task_id">
+      <input type="hidden" name="current_stage_val" id="current_task_stage_val">
+
+      <div style="margin-bottom:1rem;display:flex;align-items:center;gap:0.75rem;">
+        <span style="font-size:0.85rem;color:var(--text-muted);">Current Stage:</span>
+        <span id="current_stage_badge"></span>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="target_stage_select">Target Transition Stage</label>
+        <select name="target_stage" id="target_stage_select" class="glass-select" required>
+          <!-- Populated dynamically via JS -->
+        </select>
+      </div>
+
+      <!-- Activity Date & Time Input (Mandatory Date Input Standard with Calendar Icon) -->
+      <div class="form-group">
+        <label class="form-label" for="stage_logged_at">
+          Activity Date & Time
+          <span style="font-weight:400;color:var(--text-muted);font-size:0.75rem;">(Adjust if recording delayed
+            progress)</span>
+        </label>
+        <div class="glass-date-group">
+          <input type="text" name="logged_at" id="stage_logged_at" class="glass-input flatpickr-input"
+            placeholder="Select activity date & time" data-enable-time="true" data-default-today="true" required>
+          <button type="button" class="glass-date-toggle" data-toggle aria-label="Open Calendar">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Conditional Budget Fields (Visible when target is BUDGET_PENDING) -->
+      <div id="budget_request_fields"
+        style="display:none;padding:1rem;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);border-radius:12px;margin-bottom:1.25rem;">
+        <div class="form-group">
+          <label class="form-label" for="budget_amount">Required Budget Amount (RM)</label>
+          <input type="number" step="0.01" min="1" name="budget_amount" id="budget_amount" class="glass-input"
+            placeholder="e.g. 250.00">
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label class="form-label" for="budget_justification">Budget Justification & Technical Bill of
+            Materials</label>
+          <textarea name="budget_justification" id="budget_justification" class="glass-textarea"
+            placeholder="Detail hardware items, vendor quotes, and component necessity..."></textarea>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="stage_remarks">Detailed Process Remarks / Milestone Documentation</label>
+        <textarea name="remarks" id="stage_remarks" class="glass-textarea"
+          placeholder="Detail technical progress, tests performed, or revision feedback..." required></textarea>
+      </div>
+
+      <!-- Additional Input: Reference Links & URLs for Future Reference -->
+      <div class="form-group">
+        <label class="form-label" for="stage_reference_urls">
+          Reference Links / Technical URLs
+          <span style="font-weight:400;color:var(--text-muted);font-size:0.75rem;">(e.g. GitHub repos, Google Drive,
+            datasheets — one per line)</span>
+        </label>
+        <textarea name="reference_urls" id="stage_reference_urls" class="glass-textarea" rows="2"
+          placeholder="e.g. https://github.com/kismec/project-repo&#10;https://docs.google.com/document/d/..."></textarea>
+      </div>
+
+      <!-- Media Evidence Upload Standard (Multi-Image / Multi-Video Dropzone) -->
+      <div class="form-group">
+        <label class="form-label" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>Attach Media Evidence</span>
+          <span style="font-weight:400;color:#818cf8;font-size:0.75rem;">Multiple images &amp; videos supported</span>
+        </label>
+        <div class="glass-dropzone" id="stageEvidenceDropzone">
+          <svg width="32" height="32" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:#818cf8;">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          </svg>
+          <div style="font-size:0.875rem;font-weight:600;margin-top:0.5rem;color:#fff;">
+            Drag &amp; drop photos/videos or <span style="color:#818cf8;text-decoration:underline;">browse files</span>
+          </div>
+          <small style="color:var(--text-muted);display:block;margin-top:0.25rem;">
+            JPG, PNG, GIF, MP4, MOV, WEBM (Max 50MB per file)
+          </small>
+          <input type="file" id="stage_evidence_input" multiple accept="image/*,video/*" style="display:none;">
+        </div>
+
+        <!-- Staged files preview list -->
+        <div id="stagedEvidenceList"
+          style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.75rem;empty-cells:hide;"></div>
+      </div>
+
+      <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1.5rem;">
+        <button type="button" class="glass-btn" data-close-modal>Cancel</button>
+        <button type="submit" class="glass-btn glass-btn-primary">Submit Stage Update</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<?php require_once __DIR__ . '/includes/footer.php'; ?>
 
 <!-- Slide-over / Modal: Update Task Stage & Upload Evidence -->
 <div id="modalUpdateStage" class="glass-modal-backdrop">

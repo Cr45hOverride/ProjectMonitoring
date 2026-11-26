@@ -21,12 +21,25 @@ $filterStatus = strtolower(trim($_GET['status'] ?? ''));
 $where = [];
 $params = [];
 
-if (isSupervisor()) {
-  $where[] = 't.supervisor_id = :uid';
-  $params[':uid'] = $currentUser['user_id'];
-} elseif (isIntern()) {
+$myUid = (int)$currentUser['user_id'];
+$myRole = $currentUser['role'];
+$myDept = trim($currentUser['department'] ?? '');
+
+if (isIntern() || isStaff()) {
   $where[] = 't.intern_id = :uid';
-  $params[':uid'] = $currentUser['user_id'];
+  $params[':uid'] = $myUid;
+} elseif (isSupervisor()) {
+  $where[] = '(t.supervisor_id = :uid OR t.intern_id = :uid)';
+  $params[':uid'] = $myUid;
+} elseif (isHod()) {
+  if (!empty($myDept)) {
+    $where[] = '(t.supervisor_id = :uid OR t.intern_id = :uid OR i.department = :dept OR s.department = :dept)';
+    $params[':uid'] = $myUid;
+    $params[':dept'] = $myDept;
+  } else {
+    $where[] = '(t.supervisor_id = :uid OR t.intern_id = :uid)';
+    $params[':uid'] = $myUid;
+  }
 }
 
 if (!empty($filterStatus) && in_array($filterStatus, ['pending', 'approved', 'rejected'], true)) {
@@ -44,11 +57,9 @@ $sql = "
         t.supervisor_id,
         t.intern_id,
         i.full_name AS intern_name,
-        CASE 
-            WHEN s.role = 'supervisor' THEN s.full_name
-            WHEN sup.user_id IS NOT NULL THEN sup.full_name
-            ELSE s.full_name 
-        END AS supervisor_name,
+        i.role AS intern_role,
+        COALESCE(s.full_name, 'Unassigned') AS supervisor_name,
+        s.role AS supervisor_role,
         r.full_name AS reviewer_name
     FROM budget_requests b
     INNER JOIN tasks t ON b.task_id = t.task_id
@@ -206,17 +217,21 @@ require_once __DIR__ . '/includes/header.php';
                   <?php endif; ?>
                 </td>
                 <td><?= formatBudgetBadge($b['status']) ?></td>
-                <?php if (!isIntern()): ?>
+                <?php if (!isIntern() && !isStaff()): ?>
                   <td style="text-align:right;white-space:nowrap;">
                     <?php if ($b['status'] === 'pending'): ?>
-                      <button type="button" class="glass-btn glass-btn-sm glass-btn-success" style="margin-right:0.25rem;"
-                        onclick="reviewBudget(<?= $b['budget_id'] ?>, 'approved')">
-                        Approve
-                      </button>
-                      <button type="button" class="glass-btn glass-btn-sm glass-btn-danger"
-                        onclick="reviewBudget(<?= $b['budget_id'] ?>, 'rejected')">
-                        Reject
-                      </button>
+                      <?php if ((int)$b['intern_id'] === $myUid): ?>
+                        <span style="font-size:0.75rem;color:var(--text-muted);">Your Request (Pending Review)</span>
+                      <?php elseif ((int)$b['supervisor_id'] === $myUid || isAdmin() || isManager() || isHod()): ?>
+                        <button type="button" class="glass-btn glass-btn-sm glass-btn-success" style="margin-right:0.25rem;"
+                          onclick="reviewBudget(<?= $b['budget_id'] ?>, 'approved')">
+                          Approve
+                        </button>
+                        <button type="button" class="glass-btn glass-btn-sm glass-btn-danger"
+                          onclick="reviewBudget(<?= $b['budget_id'] ?>, 'rejected')">
+                          Reject
+                        </button>
+                      <?php endif; ?>
                     <?php else: ?>
                       <span style="font-size:0.75rem;color:var(--text-muted);">Finalized</span>
                     <?php endif; ?>

@@ -15,7 +15,7 @@ CREATE TABLE `users` (
   `full_name` VARCHAR(150) NOT NULL,
   `email` VARCHAR(150) NOT NULL UNIQUE,
   `password_hash` VARCHAR(255) NOT NULL,
-  `role` ENUM('admin', 'supervisor', 'staff', 'intern') NOT NULL,
+  `role` ENUM('admin', 'manager', 'hod', 'supervisor', 'staff', 'intern') NOT NULL,
   `department` VARCHAR(100) DEFAULT NULL,
   `supervisor_id` INT NULL DEFAULT NULL,
   `intern_start_date` DATE NULL DEFAULT NULL,

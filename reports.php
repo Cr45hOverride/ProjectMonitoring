@@ -22,12 +22,25 @@ $selectedTaskId = (int)($_GET['task_id'] ?? 0);
 $where = '';
 $params = [];
 
-if (isSupervisor()) {
-    $where = 'WHERE t.supervisor_id = :uid';
-    $params[':uid'] = $currentUser['user_id'];
-} elseif (isIntern()) {
+$myUid = (int)$currentUser['user_id'];
+$myRole = $currentUser['role'];
+$myDept = trim($currentUser['department'] ?? '');
+
+if (isIntern() || isStaff()) {
     $where = 'WHERE t.intern_id = :uid';
-    $params[':uid'] = $currentUser['user_id'];
+    $params[':uid'] = $myUid;
+} elseif (isSupervisor()) {
+    $where = 'WHERE (t.supervisor_id = :uid OR t.intern_id = :uid)';
+    $params[':uid'] = $myUid;
+} elseif (isHod()) {
+    if (!empty($myDept)) {
+        $where = 'WHERE (t.supervisor_id = :uid OR t.intern_id = :uid OR i.department = :dept)';
+        $params[':uid'] = $myUid;
+        $params[':dept'] = $myDept;
+    } else {
+        $where = 'WHERE (t.supervisor_id = :uid OR t.intern_id = :uid)';
+        $params[':uid'] = $myUid;
+    }
 }
 
 $sqlTasks = "

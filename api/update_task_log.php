@@ -56,15 +56,16 @@ if (!$log) {
 }
 
 // Permission Check:
-// Admin can edit any
+// Admin and Manager can edit any
 // Supervisor can edit if supervisor on task
-// Intern can edit if intern on task
+// Assignee can edit if assignee on task
+// Actor who created the log can edit
 $canEdit = false;
-if (isAdmin()) {
+if (isAdmin() || isManager()) {
     $canEdit = true;
-} elseif (isSupervisor() && (int)$log['supervisor_id'] === $currentUser['user_id']) {
+} elseif ((int)$log['supervisor_id'] === $currentUser['user_id'] || (int)$log['intern_id'] === $currentUser['user_id'] || (int)$log['actor_id'] === $currentUser['user_id']) {
     $canEdit = true;
-} elseif (isIntern() && (int)$log['intern_id'] === $currentUser['user_id']) {
+} elseif (isHod() && hasTaskAccess((int)$log['task_id'], $currentUser)) {
     $canEdit = true;
 }
 

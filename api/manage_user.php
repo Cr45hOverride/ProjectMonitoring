@@ -57,7 +57,7 @@ $supervisorId = !empty($input['supervisor_id']) ? (int)$input['supervisor_id'] :
 $startDate = !empty($input['intern_start_date']) ? trim($input['intern_start_date']) : null;
 $endDate = !empty($input['intern_end_date']) ? trim($input['intern_end_date']) : null;
 
-if (empty($fullName) || empty($email) || !in_array($role, ['admin', 'supervisor', 'staff', 'intern'], true)) {
+if (empty($fullName) || empty($email) || !in_array($role, ['admin', 'manager', 'hod', 'supervisor', 'staff', 'intern'], true)) {
     jsonResponse(['success' => false, 'message' => 'Please provide valid full name, email, and role.'], 422);
 }
 

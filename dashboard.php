@@ -16,32 +16,43 @@ requireLogin();
 $currentUser = getCurrentUser();
 $pdo = getDBConnection();
 
-// Build query conditions based on role
+// Build query conditions based on role and multi-level hierarchy
 $whereClause = '';
 $params = [];
 
-if (isSupervisor()) {
-  $whereClause = 'WHERE t.supervisor_id = :uid';
-  $params[':uid'] = $currentUser['user_id'];
-} elseif (isIntern()) {
+$myUid = (int)$currentUser['user_id'];
+$myRole = $currentUser['role'];
+$myDept = trim($currentUser['department'] ?? '');
+
+if (isIntern() || isStaff()) {
   $whereClause = 'WHERE t.intern_id = :uid';
-  $params[':uid'] = $currentUser['user_id'];
+  $params[':uid'] = $myUid;
+} elseif (isSupervisor()) {
+  $whereClause = 'WHERE (t.supervisor_id = :uid OR t.intern_id = :uid)';
+  $params[':uid'] = $myUid;
+} elseif (isHod()) {
+  if (!empty($myDept)) {
+    $whereClause = 'WHERE (t.supervisor_id = :uid OR t.intern_id = :uid OR i.department = :dept OR s.department = :dept)';
+    $params[':uid'] = $myUid;
+    $params[':dept'] = $myDept;
+  } else {
+    $whereClause = 'WHERE (t.supervisor_id = :uid OR t.intern_id = :uid)';
+    $params[':uid'] = $myUid;
+  }
 }
+// Admin and Manager: no whereClause (view entire organization)
 
 // Fetch all relevant tasks for KPI metrics & SLA inspection
 $sqlTasks = "
     SELECT 
         t.*,
-        CASE 
-            WHEN s.role = 'supervisor' THEN s.full_name
-            WHEN sup.user_id IS NOT NULL THEN sup.full_name
-            ELSE s.full_name 
-        END AS supervisor_name,
-        i.full_name AS intern_name
+        COALESCE(s.full_name, 'Unassigned') AS supervisor_name,
+        s.role AS supervisor_role,
+        i.full_name AS intern_name,
+        i.role AS intern_role
     FROM tasks t
     LEFT JOIN users s ON t.supervisor_id = s.user_id
     INNER JOIN users i ON t.intern_id = i.user_id
-    LEFT JOIN users sup ON i.supervisor_id = sup.user_id
     $whereClause
     ORDER BY t.due_date ASC
 ";
@@ -138,8 +149,8 @@ require_once __DIR__ . '/includes/header.php';
     </div>
 
     <div style="display:flex;gap:0.75rem;">
-      <?php if (!isIntern()): ?>
-        <a href="<?= BASE_URL ?>/tasks.php?action=new" class="glass-btn glass-btn-primary">
+      <?php if (canAssignTasks()): ?>
+        <a href="<?= BASE_URL ?>/tasks.php" class="glass-btn glass-btn-primary">
           <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
           </svg>
@@ -341,8 +352,20 @@ require_once __DIR__ . '/includes/header.php';
                 </td>
                 <td>
                   <strong><?= htmlspecialchars($t['title']) ?></strong>
+                  <?php if ((int)$t['intern_id'] === $myUid): ?>
+                    <span class="glass-badge glass-badge-indigo" style="font-size:0.65rem;padding:0.1rem 0.35rem;display:inline-block;margin-left:0.25rem;">Assigned to You</span>
+                  <?php elseif ((int)$t['supervisor_id'] === $myUid): ?>
+                    <span class="glass-badge glass-badge-purple" style="font-size:0.65rem;padding:0.1rem 0.35rem;display:inline-block;margin-left:0.25rem;">Supervising</span>
+                  <?php endif; ?>
                 </td>
-                <td><?= htmlspecialchars($t['intern_name']) ?></td>
+                <td>
+                  <?= htmlspecialchars($t['intern_name']) ?>
+                  <?php if (!empty($t['intern_role'])): ?>
+                    <small style="color:var(--text-muted);display:block;font-size:0.7rem;text-transform:uppercase;">
+                      <?= htmlspecialchars($t['intern_role']) ?>
+                    </small>
+                  <?php endif; ?>
+                </td>
                 <td><?= formatStageBadge($t['current_stage']) ?></td>
                 <td><?= formatPriorityBadge($t['priority']) ?></td>
                 <td><?= formatDisplayDateTime($t['due_date']) ?></td>
@@ -356,7 +379,9 @@ require_once __DIR__ . '/includes/header.php';
                     'task_id' => $t['task_id'],
                     'title' => $t['title'],
                     'current_stage' => $t['current_stage'],
-                    'current_stage_badge' => formatStageBadge($t['current_stage'])
+                    'current_stage_badge' => formatStageBadge($t['current_stage']),
+                    'intern_id' => (int)$t['intern_id'],
+                    'supervisor_id' => (int)$t['supervisor_id']
                   ]), ENT_QUOTES, 'UTF-8') ?>)">
                     Update
                   </button>

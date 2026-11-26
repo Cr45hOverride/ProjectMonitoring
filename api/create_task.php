@@ -12,7 +12,7 @@ require_once __DIR__ . '/../config/setting.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/auth.php';
 
-requireRole(['admin', 'supervisor']);
+requireRole(['admin', 'manager', 'hod', 'supervisor']);
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     jsonResponse(['success' => false, 'message' => 'Invalid request method.'], 405);
@@ -27,34 +27,34 @@ $startDate = trim($_POST['start_date'] ?? '');
 $dueDate = trim($_POST['due_date'] ?? '');
 
 if (empty($title) || empty($internId) || empty($startDate) || empty($dueDate)) {
-    jsonResponse(['success' => false, 'message' => 'Please fill in all required fields (Title, Intern, Start Date, Due Date).'], 422);
+    jsonResponse(['success' => false, 'message' => 'Please fill in all required fields (Title, Assignee, Start Date, Due Date).'], 422);
 }
 
 if (!in_array($priority, ['low', 'medium', 'high'], true)) {
     $priority = 'medium';
 }
 
-// Ensure selected intern exists and is active, and fetch their assigned supervisor
+// Ensure selected assignee exists and is active, and fetch their assigned supervisor/department
 $pdo = getDBConnection();
-$stmtIntern = $pdo->prepare('SELECT user_id, role, status, supervisor_id FROM users WHERE user_id = :id AND role = "intern" LIMIT 1');
-$stmtIntern->execute([':id' => $internId]);
-$intern = $stmtIntern->fetch();
+$stmtAssignee = $pdo->prepare('SELECT user_id, full_name, role, status, supervisor_id, department FROM users WHERE user_id = :id LIMIT 1');
+$stmtAssignee->execute([':id' => $internId]);
+$assignee = $stmtAssignee->fetch();
 
-if (!$intern || $intern['status'] !== 'active') {
-    jsonResponse(['success' => false, 'message' => 'Selected intern is invalid or inactive.'], 422);
+if (!$assignee || $assignee['status'] !== 'active') {
+    jsonResponse(['success' => false, 'message' => 'Selected assignee is invalid or inactive.'], 422);
 }
 
-// Determine supervisor_id:
-// 1. If creator is a supervisor, they are the supervisor.
-// 2. If an explicit supervisor_id is submitted, use that.
-// 3. Otherwise, auto-assign the intern's direct supervisor from their profile.
-// 4. Fallback to creator user_id only if no direct supervisor exists.
-if ($currentUser['role'] === 'supervisor') {
-    $supervisorId = $currentUser['user_id'];
-} elseif (!empty($_POST['supervisor_id'])) {
+// Determine supervisor_id according to multi-level organizational hierarchy:
+// 1. If an explicit supervisor_id is submitted and valid, use that.
+// 2. If creator is a supervisor or HOD, by default they supervise this task.
+// 3. Otherwise, auto-assign the assignee's direct supervisor from their user profile.
+// 4. Fallback to creator user_id.
+if (!empty($_POST['supervisor_id'])) {
     $supervisorId = (int)$_POST['supervisor_id'];
-} elseif (!empty($intern['supervisor_id'])) {
-    $supervisorId = (int)$intern['supervisor_id'];
+} elseif (in_array($currentUser['role'], ['supervisor', 'hod'], true)) {
+    $supervisorId = $currentUser['user_id'];
+} elseif (!empty($assignee['supervisor_id'])) {
+    $supervisorId = (int)$assignee['supervisor_id'];
 } else {
     $supervisorId = $currentUser['user_id'];
 }

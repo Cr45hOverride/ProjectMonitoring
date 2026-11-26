@@ -222,22 +222,12 @@ function getTaskFullDetails(PDO $pdo, int $taskId): ?array {
     $stmt = $pdo->prepare('
         SELECT 
             t.*,
-            CASE 
-                WHEN s.role = "supervisor" THEN s.full_name
-                WHEN sup.user_id IS NOT NULL THEN sup.full_name
-                ELSE s.full_name 
-            END AS supervisor_name,
-            CASE 
-                WHEN s.role = "supervisor" THEN s.email
-                WHEN sup.user_id IS NOT NULL THEN sup.email
-                ELSE s.email 
-            END AS supervisor_email,
-            CASE 
-                WHEN s.role = "supervisor" THEN s.department
-                WHEN sup.user_id IS NOT NULL THEN sup.department
-                ELSE s.department 
-            END AS supervisor_dept,
+            COALESCE(s.full_name, sup.full_name, "Unassigned") AS supervisor_name,
+            COALESCE(s.email, sup.email, "") AS supervisor_email,
+            COALESCE(s.department, sup.department, "") AS supervisor_dept,
+            COALESCE(s.role, sup.role, "supervisor") AS supervisor_role,
             i.full_name AS intern_name,
+            i.role AS intern_role,
             i.email AS intern_email,
             i.department AS intern_dept,
             i.intern_start_date,
