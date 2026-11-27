@@ -95,8 +95,9 @@ $dbPort = '3306';
 - Budget expenditure and disbursement KPI card.
 - **Active Task Portfolio:** Includes **Update Stage**, **View Report**, and **Delete Task** (Admin-only with confirmation modal and smooth row deletion animation).
 
-### 2. Multi-Evidence Media Dropzone (`tasks.php` & `dashboard.php`)
-- Interns and supervisors can attach **multiple images (JPG, PNG, WEBP)** and **videos (MP4, MOV)** simultaneously during stage transitions.
+### 2. Task Portfolio & Multi-Evidence Media Dropzone (`tasks.php` & `dashboard.php`)
+- **Responsive No-Scroll Table Layout:** Wide container (`.app-container-wide`), percentage-based fixed column widths (`%`), combined **Duration** column (`dd/mm/yy - dd/mm/yy` via `formatShortDate()`), and vertically stacked **Update / Report / Delete** glass action buttons so the entire table fits cleanly on desktop without horizontal scrolling.
+- **Multi-Evidence Upload:** Interns and supervisors can attach **multiple images (JPG, PNG, WEBP)** and **videos (MP4, MOV)** simultaneously during stage transitions.
 - Displays interactive image previews and removable file pills prior to upload.
 
 ### 3. Print-Ready A4 PDF Audit Report (`export_report_pdf.php`)
@@ -206,3 +207,9 @@ When uploading to your live cPanel server (`https://jupiter.kismec.org.my/projec
      - `fileinfo`
 5. **Access Application:**
    - Navigate to `https://jupiter.kismec.org.my/project_management/` and log in with your administrative credentials.
+
+---
+
+## 9. Recent Fixes & Enhancements
+- **Task Portfolio UI (`tasks.php`, `assets/css/glass.css`, `includes/report_helper.php`):** Combined `Start Date` and `Due Date` into a compact `Duration` column (`dd/mm/yy - dd/mm/yy`), applied percentage-based column widths, widened the task container (`.app-container-wide`), and stacked action buttons (`Update`, `Report`, `Delete`) vertically to eliminate horizontal scrolling.
+- **PDO Parameter & HOD Budget Query Fix (`dashboard.php`, `tasks.php`, `budgets.php`, `reports.php`):** Replaced reused named PDO placeholders (`:uid`, `:dept`) with unique parameter names across all Supervisor and HOD queries (`ATTR_EMULATE_PREPARES => false` compliance, resolving `SQLSTATE[HY093]`) and added missing user table joins to the dashboard budget KPI query.
