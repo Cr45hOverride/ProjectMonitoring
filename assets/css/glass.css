@@ -185,6 +185,10 @@ a:hover {
   margin: 0 auto;
   padding: 2rem 1.5rem;
 }
+.app-container-wide {
+  max-width: 1680px;
+  width: 96%;
+}
 
 .page-header {
   display: flex;
@@ -276,6 +280,95 @@ a:hover {
 .glass-btn-icon {
   padding: 0.5rem;
   border-radius: 8px;
+}
+
+/* Consistent Compact Vertical Glass Action Buttons for Tables */
+.actions-cell {
+  text-align: right;
+  white-space: nowrap;
+  width: 105px;
+}
+.action-btns {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+  width: 92px;
+}
+.action-btns .glass-btn-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.28rem 0.65rem;
+  font-size: 0.725rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  border-radius: 9999px;
+  line-height: 1.2;
+  white-space: nowrap;
+  backdrop-filter: blur(4px);
+}
+.action-btn-update {
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+}
+.action-btn-update:hover {
+  background: rgba(99, 102, 241, 0.28);
+  color: #e0e7ff;
+  border-color: rgba(129, 140, 248, 0.55);
+}
+.action-btn-report {
+  background: rgba(14, 165, 233, 0.15);
+  color: #7dd3fc;
+  border: 1px solid rgba(14, 165, 233, 0.35);
+}
+.action-btn-report:hover {
+  background: rgba(14, 165, 233, 0.28);
+  color: #e0f2fe;
+  border-color: rgba(56, 189, 248, 0.55);
+}
+.action-btn-delete {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+.action-btn-delete:hover {
+  background: rgba(239, 68, 68, 0.28);
+  color: #fee2e2;
+  border-color: rgba(248, 113, 113, 0.6);
+}
+@media (min-width: 769px) {
+  .tasks-table {
+    table-layout: fixed;
+    width: 100%;
+  }
+}
+.tasks-table th,
+.tasks-table td {
+  padding: 0.85rem 0.55rem;
+}
+.tasks-table .task-title-cell strong,
+.tasks-table .task-title-cell p {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.action-btns-row {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+  width: 88px;
+}
+.tasks-table .action-btns-row .glass-btn-sm {
+  width: 100%;
+  justify-content: center;
+  padding: 0.28rem 0.55rem;
+  font-size: 0.725rem;
 }
 
 /* Glass Tables */

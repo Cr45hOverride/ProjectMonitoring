@@ -28,16 +28,20 @@ if (isIntern() || isStaff()) {
   $whereClause = 'WHERE t.intern_id = :uid';
   $params[':uid'] = $myUid;
 } elseif (isSupervisor()) {
-  $whereClause = 'WHERE (t.supervisor_id = :uid OR t.intern_id = :uid)';
-  $params[':uid'] = $myUid;
+  $whereClause = 'WHERE (t.supervisor_id = :uid_sup OR t.intern_id = :uid_int)';
+  $params[':uid_sup'] = $myUid;
+  $params[':uid_int'] = $myUid;
 } elseif (isHod()) {
   if (!empty($myDept)) {
-    $whereClause = 'WHERE (t.supervisor_id = :uid OR t.intern_id = :uid OR i.department = :dept OR s.department = :dept)';
-    $params[':uid'] = $myUid;
-    $params[':dept'] = $myDept;
+    $whereClause = 'WHERE (t.supervisor_id = :uid_sup OR t.intern_id = :uid_int OR i.department = :dept_i OR s.department = :dept_s)';
+    $params[':uid_sup'] = $myUid;
+    $params[':uid_int'] = $myUid;
+    $params[':dept_i'] = $myDept;
+    $params[':dept_s'] = $myDept;
   } else {
-    $whereClause = 'WHERE (t.supervisor_id = :uid OR t.intern_id = :uid)';
-    $params[':uid'] = $myUid;
+    $whereClause = 'WHERE (t.supervisor_id = :uid_sup OR t.intern_id = :uid_int)';
+    $params[':uid_sup'] = $myUid;
+    $params[':uid_int'] = $myUid;
   }
 }
 // Admin and Manager: no whereClause (view entire organization)
@@ -122,6 +126,8 @@ $sqlBudget = "
         SUM(CASE WHEN b.status = 'pending' THEN 1 ELSE 0 END) AS total_pending
     FROM budget_requests b
     INNER JOIN tasks t ON b.task_id = t.task_id
+    LEFT JOIN users s ON t.supervisor_id = s.user_id
+    INNER JOIN users i ON t.intern_id = i.user_id
     $whereClause
 ";
 $stmtBudget = $pdo->prepare($sqlBudget);

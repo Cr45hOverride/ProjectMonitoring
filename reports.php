@@ -30,16 +30,19 @@ if (isIntern() || isStaff()) {
     $where = 'WHERE t.intern_id = :uid';
     $params[':uid'] = $myUid;
 } elseif (isSupervisor()) {
-    $where = 'WHERE (t.supervisor_id = :uid OR t.intern_id = :uid)';
-    $params[':uid'] = $myUid;
+    $where = 'WHERE (t.supervisor_id = :uid_sup OR t.intern_id = :uid_int)';
+    $params[':uid_sup'] = $myUid;
+    $params[':uid_int'] = $myUid;
 } elseif (isHod()) {
     if (!empty($myDept)) {
-        $where = 'WHERE (t.supervisor_id = :uid OR t.intern_id = :uid OR i.department = :dept)';
-        $params[':uid'] = $myUid;
+        $where = 'WHERE (t.supervisor_id = :uid_sup OR t.intern_id = :uid_int OR i.department = :dept)';
+        $params[':uid_sup'] = $myUid;
+        $params[':uid_int'] = $myUid;
         $params[':dept'] = $myDept;
     } else {
-        $where = 'WHERE (t.supervisor_id = :uid OR t.intern_id = :uid)';
-        $params[':uid'] = $myUid;
+        $where = 'WHERE (t.supervisor_id = :uid_sup OR t.intern_id = :uid_int)';
+        $params[':uid_sup'] = $myUid;
+        $params[':uid_int'] = $myUid;
     }
 }
 

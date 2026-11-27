@@ -187,6 +187,21 @@ function formatDisplayDate(?string $date): string {
 }
 
 /**
+ * Format Compact Date string (dd/mm/yy)
+ */
+function formatShortDate(?string $date): string {
+    if (empty($date)) {
+        return '—';
+    }
+    try {
+        $dt = new DateTime($date);
+        return $dt->format('d/m/y');
+    } catch (Exception $e) {
+        return $date;
+    }
+}
+
+/**
  * Parse multiline or comma-separated reference URLs into structured links
  */
 function parseReferenceUrls(?string $rawUrls): array {

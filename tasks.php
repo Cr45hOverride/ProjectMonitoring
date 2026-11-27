@@ -16,7 +16,7 @@ requireLogin();
 $currentUser = getCurrentUser();
 $pdo = getDBConnection();
 
-$myUid = (int)$currentUser['user_id'];
+$myUid = (int) $currentUser['user_id'];
 $myRole = $currentUser['role'];
 $myDept = trim($currentUser['department'] ?? '');
 
@@ -30,29 +30,29 @@ $filterSearch = trim($_GET['q'] ?? '');
 // Portfolio Counts for View Perspective Tabs
 $stmtCountAssigned = $pdo->prepare('SELECT COUNT(*) FROM tasks WHERE intern_id = :uid');
 $stmtCountAssigned->execute([':uid' => $myUid]);
-$countAssigned = (int)$stmtCountAssigned->fetchColumn();
+$countAssigned = (int) $stmtCountAssigned->fetchColumn();
 
 $stmtCountSupervised = $pdo->prepare('SELECT COUNT(*) FROM tasks WHERE supervisor_id = :uid');
 $stmtCountSupervised->execute([':uid' => $myUid]);
-$countSupervised = (int)$stmtCountSupervised->fetchColumn();
+$countSupervised = (int) $stmtCountSupervised->fetchColumn();
 
 if ($myRole === 'admin' || $myRole === 'manager') {
-    $countTotal = (int)$pdo->query('SELECT COUNT(*) FROM tasks')->fetchColumn();
+  $countTotal = (int) $pdo->query('SELECT COUNT(*) FROM tasks')->fetchColumn();
 } elseif ($myRole === 'hod') {
-    $stmtCountHod = $pdo->prepare('
+  $stmtCountHod = $pdo->prepare('
         SELECT COUNT(DISTINCT t.task_id) FROM tasks t
         LEFT JOIN users i ON t.intern_id = i.user_id
         LEFT JOIN users s ON t.supervisor_id = s.user_id
-        WHERE t.supervisor_id = :uid OR t.intern_id = :uid OR i.department = :dept OR s.department = :dept
+        WHERE t.supervisor_id = :uid_sup OR t.intern_id = :uid_int OR i.department = :dept_i OR s.department = :dept_s
     ');
-    $stmtCountHod->execute([':uid' => $myUid, ':dept' => $myDept]);
-    $countTotal = (int)$stmtCountHod->fetchColumn();
+  $stmtCountHod->execute([':uid_sup' => $myUid, ':uid_int' => $myUid, ':dept_i' => $myDept, ':dept_s' => $myDept]);
+  $countTotal = (int) $stmtCountHod->fetchColumn();
 } elseif ($myRole === 'supervisor') {
-    $stmtCountSup = $pdo->prepare('SELECT COUNT(*) FROM tasks WHERE supervisor_id = :uid OR intern_id = :uid');
-    $stmtCountSup->execute([':uid' => $myUid]);
-    $countTotal = (int)$stmtCountSup->fetchColumn();
+  $stmtCountSup = $pdo->prepare('SELECT COUNT(*) FROM tasks WHERE supervisor_id = :uid_sup OR intern_id = :uid_int');
+  $stmtCountSup->execute([':uid_sup' => $myUid, ':uid_int' => $myUid]);
+  $countTotal = (int) $stmtCountSup->fetchColumn();
 } else {
-    $countTotal = $countAssigned;
+  $countTotal = $countAssigned;
 }
 
 $where = [];
@@ -60,36 +60,42 @@ $params = [];
 
 // Apply hierarchical perspective filtering
 if (isIntern() || isStaff()) {
+  $where[] = 't.intern_id = :my_uid';
+  $params[':my_uid'] = $myUid;
+} else {
+  if ($filterView === 'assigned') {
     $where[] = 't.intern_id = :my_uid';
     $params[':my_uid'] = $myUid;
-} else {
-    if ($filterView === 'assigned') {
-        $where[] = 't.intern_id = :my_uid';
-        $params[':my_uid'] = $myUid;
-    } elseif ($filterView === 'supervised') {
-        $where[] = 't.supervisor_id = :my_uid';
-        $params[':my_uid'] = $myUid;
-    } elseif ($filterView === 'dept' && isHod() && !empty($myDept)) {
-        $where[] = '(i.department = :my_dept OR s.department = :my_dept OR t.supervisor_id = :my_uid OR t.intern_id = :my_uid)';
-        $params[':my_dept'] = $myDept;
-        $params[':my_uid'] = $myUid;
-    } else {
-        // Default View: show all relevant tasks
-        if ($myRole === 'supervisor') {
-            $where[] = '(t.supervisor_id = :my_uid OR t.intern_id = :my_uid)';
-            $params[':my_uid'] = $myUid;
-        } elseif ($myRole === 'hod') {
-            if (!empty($myDept)) {
-                $where[] = '(i.department = :my_dept OR s.department = :my_dept OR t.supervisor_id = :my_uid OR t.intern_id = :my_uid)';
-                $params[':my_dept'] = $myDept;
-                $params[':my_uid'] = $myUid;
-            } else {
-                $where[] = '(t.supervisor_id = :my_uid OR t.intern_id = :my_uid)';
-                $params[':my_uid'] = $myUid;
-            }
-        }
-        // Admin and Manager see all tasks by default
+  } elseif ($filterView === 'supervised') {
+    $where[] = 't.supervisor_id = :my_uid';
+    $params[':my_uid'] = $myUid;
+  } elseif ($filterView === 'dept' && isHod() && !empty($myDept)) {
+    $where[] = '(i.department = :my_dept_i OR s.department = :my_dept_s OR t.supervisor_id = :my_uid_sup OR t.intern_id = :my_uid_int)';
+    $params[':my_dept_i'] = $myDept;
+    $params[':my_dept_s'] = $myDept;
+    $params[':my_uid_sup'] = $myUid;
+    $params[':my_uid_int'] = $myUid;
+  } else {
+    // Default View: show all relevant tasks
+    if ($myRole === 'supervisor') {
+      $where[] = '(t.supervisor_id = :my_uid_sup OR t.intern_id = :my_uid_int)';
+      $params[':my_uid_sup'] = $myUid;
+      $params[':my_uid_int'] = $myUid;
+    } elseif ($myRole === 'hod') {
+      if (!empty($myDept)) {
+        $where[] = '(i.department = :my_dept_i OR s.department = :my_dept_s OR t.supervisor_id = :my_uid_sup OR t.intern_id = :my_uid_int)';
+        $params[':my_dept_i'] = $myDept;
+        $params[':my_dept_s'] = $myDept;
+        $params[':my_uid_sup'] = $myUid;
+        $params[':my_uid_int'] = $myUid;
+      } else {
+        $where[] = '(t.supervisor_id = :my_uid_sup OR t.intern_id = :my_uid_int)';
+        $params[':my_uid_sup'] = $myUid;
+        $params[':my_uid_int'] = $myUid;
+      }
     }
+    // Admin and Manager see all tasks by default
+  }
 }
 
 if (!empty($filterStage)) {
@@ -151,49 +157,49 @@ foreach ($tasks as $task) {
 $assignees = [];
 $supervisors = [];
 if (canAssignTasks()) {
-    if ($myRole === 'admin') {
-        $assignees = $pdo->query('
+  if ($myRole === 'admin') {
+    $assignees = $pdo->query('
             SELECT user_id, full_name, role, department, supervisor_id 
             FROM users 
             WHERE status = "active" 
             ORDER BY FIELD(role, "manager", "hod", "supervisor", "staff", "intern"), full_name ASC
         ')->fetchAll();
-    } elseif ($myRole === 'manager') {
-        $assignees = $pdo->query('
+  } elseif ($myRole === 'manager') {
+    $assignees = $pdo->query('
             SELECT user_id, full_name, role, department, supervisor_id 
             FROM users 
             WHERE role IN ("hod", "supervisor", "staff", "intern") AND status = "active" 
             ORDER BY FIELD(role, "hod", "supervisor", "staff", "intern"), full_name ASC
         ')->fetchAll();
-    } elseif ($myRole === 'hod') {
-        $stmtA = $pdo->prepare('
+  } elseif ($myRole === 'hod') {
+    $stmtA = $pdo->prepare('
             SELECT user_id, full_name, role, department, supervisor_id 
             FROM users 
             WHERE role IN ("supervisor", "staff", "intern") AND status = "active"
-              AND (department = :dept OR supervisor_id = :uid OR :dept = "")
+              AND (department = :dept OR supervisor_id = :uid OR :dept_empty = "")
             ORDER BY FIELD(role, "supervisor", "staff", "intern"), full_name ASC
         ');
-        $stmtA->execute([':dept' => $myDept, ':uid' => $myUid]);
-        $assignees = $stmtA->fetchAll();
-        if (empty($assignees)) {
-            $assignees = $pdo->query('SELECT user_id, full_name, role, department, supervisor_id FROM users WHERE role IN ("supervisor", "staff", "intern") AND status = "active" ORDER BY full_name ASC')->fetchAll();
-        }
-    } elseif ($myRole === 'supervisor') {
-        $stmtA = $pdo->prepare('
+    $stmtA->execute([':dept' => $myDept, ':uid' => $myUid, ':dept_empty' => $myDept]);
+    $assignees = $stmtA->fetchAll();
+    if (empty($assignees)) {
+      $assignees = $pdo->query('SELECT user_id, full_name, role, department, supervisor_id FROM users WHERE role IN ("supervisor", "staff", "intern") AND status = "active" ORDER BY full_name ASC')->fetchAll();
+    }
+  } elseif ($myRole === 'supervisor') {
+    $stmtA = $pdo->prepare('
             SELECT user_id, full_name, role, department, supervisor_id 
             FROM users 
             WHERE role IN ("staff", "intern") AND status = "active"
               AND (supervisor_id = :uid OR department = :dept OR supervisor_id IS NULL)
             ORDER BY FIELD(role, "staff", "intern"), full_name ASC
         ');
-        $stmtA->execute([':uid' => $myUid, ':dept' => $myDept]);
-        $assignees = $stmtA->fetchAll();
-        if (empty($assignees)) {
-            $assignees = $pdo->query('SELECT user_id, full_name, role, department, supervisor_id FROM users WHERE role IN ("staff", "intern") AND status = "active" ORDER BY full_name ASC')->fetchAll();
-        }
+    $stmtA->execute([':uid' => $myUid, ':dept' => $myDept]);
+    $assignees = $stmtA->fetchAll();
+    if (empty($assignees)) {
+      $assignees = $pdo->query('SELECT user_id, full_name, role, department, supervisor_id FROM users WHERE role IN ("staff", "intern") AND status = "active" ORDER BY full_name ASC')->fetchAll();
     }
+  }
 
-    $supervisors = $pdo->query('
+  $supervisors = $pdo->query('
         SELECT user_id, full_name, role, department 
         FROM users 
         WHERE role IN ("admin", "manager", "hod", "supervisor") AND status = "active" 
@@ -205,7 +211,7 @@ $pageTitle = 'Task & Project Portfolio';
 require_once __DIR__ . '/includes/header.php';
 ?>
 
-<main class="app-container">
+<main class="app-container app-container-wide">
   <div class="page-header">
     <div>
       <h1 class="page-title">
@@ -215,7 +221,8 @@ require_once __DIR__ . '/includes/header.php';
         </svg>
         Tasks & Project Portfolios
       </h1>
-      <p class="page-subtitle">Track stage progression, review milestone evidence, and govern multi-level task supervision.</p>
+      <p class="page-subtitle">Track stage progression, review milestone evidence, and govern multi-level task
+        supervision.</p>
     </div>
 
     <?php if (canAssignTasks()): ?>
@@ -231,20 +238,27 @@ require_once __DIR__ . '/includes/header.php';
   <!-- Dual Perspective Tabs (Assigned to Me vs Supervised by Me) -->
   <?php if (!isIntern() && !isStaff()): ?>
     <div style="display:flex;gap:0.5rem;margin-bottom:1.25rem;flex-wrap:wrap;align-items:center;">
-      <a href="<?= BASE_URL ?>/tasks.php<?= !empty($filterStage) ? '?stage=' . urlencode($filterStage) : '' ?>" class="glass-btn glass-btn-sm <?= empty($filterView) ? 'glass-btn-primary' : '' ?>">
+      <a href="<?= BASE_URL ?>/tasks.php<?= !empty($filterStage) ? '?stage=' . urlencode($filterStage) : '' ?>"
+        class="glass-btn glass-btn-sm <?= empty($filterView) ? 'glass-btn-primary' : '' ?>">
         <?= ($myRole === 'admin' || $myRole === 'manager') ? 'All Organization Tasks' : (($myRole === 'hod') ? 'Department Overview' : 'All My Relevant Tasks') ?>
-        <span class="glass-badge" style="margin-left:0.35rem;padding:0.15rem 0.45rem;font-size:0.75rem;"><?= $countTotal ?></span>
+        <span class="glass-badge"
+          style="margin-left:0.35rem;padding:0.15rem 0.45rem;font-size:0.75rem;"><?= $countTotal ?></span>
       </a>
-      <a href="<?= BASE_URL ?>/tasks.php?view=assigned<?= !empty($filterStage) ? '&stage=' . urlencode($filterStage) : '' ?>" class="glass-btn glass-btn-sm <?= $filterView === 'assigned' ? 'glass-btn-primary' : '' ?>">
+      <a href="<?= BASE_URL ?>/tasks.php?view=assigned<?= !empty($filterStage) ? '&stage=' . urlencode($filterStage) : '' ?>"
+        class="glass-btn glass-btn-sm <?= $filterView === 'assigned' ? 'glass-btn-primary' : '' ?>">
         Assigned to Me (My Tasks)
-        <span class="glass-badge glass-badge-indigo" style="margin-left:0.35rem;padding:0.15rem 0.45rem;font-size:0.75rem;"><?= $countAssigned ?></span>
+        <span class="glass-badge glass-badge-indigo"
+          style="margin-left:0.35rem;padding:0.15rem 0.45rem;font-size:0.75rem;"><?= $countAssigned ?></span>
       </a>
-      <a href="<?= BASE_URL ?>/tasks.php?view=supervised<?= !empty($filterStage) ? '&stage=' . urlencode($filterStage) : '' ?>" class="glass-btn glass-btn-sm <?= $filterView === 'supervised' ? 'glass-btn-primary' : '' ?>">
+      <a href="<?= BASE_URL ?>/tasks.php?view=supervised<?= !empty($filterStage) ? '&stage=' . urlencode($filterStage) : '' ?>"
+        class="glass-btn glass-btn-sm <?= $filterView === 'supervised' ? 'glass-btn-primary' : '' ?>">
         Supervised by Me
-        <span class="glass-badge glass-badge-purple" style="margin-left:0.35rem;padding:0.15rem 0.45rem;font-size:0.75rem;"><?= $countSupervised ?></span>
+        <span class="glass-badge glass-badge-purple"
+          style="margin-left:0.35rem;padding:0.15rem 0.45rem;font-size:0.75rem;"><?= $countSupervised ?></span>
       </a>
       <?php if ($myRole === 'hod' && !empty($myDept)): ?>
-        <a href="<?= BASE_URL ?>/tasks.php?view=dept<?= !empty($filterStage) ? '&stage=' . urlencode($filterStage) : '' ?>" class="glass-btn glass-btn-sm <?= $filterView === 'dept' ? 'glass-btn-primary' : '' ?>">
+        <a href="<?= BASE_URL ?>/tasks.php?view=dept<?= !empty($filterStage) ? '&stage=' . urlencode($filterStage) : '' ?>"
+          class="glass-btn glass-btn-sm <?= $filterView === 'dept' ? 'glass-btn-primary' : '' ?>">
           <?= htmlspecialchars($myDept) ?> Centre
         </a>
       <?php endif; ?>
@@ -301,33 +315,33 @@ require_once __DIR__ . '/includes/header.php';
 
       <div style="display:flex;gap:0.5rem;">
         <button type="submit" class="glass-btn glass-btn-primary glass-btn-sm">Filter</button>
-        <a href="<?= BASE_URL ?>/tasks.php<?= !empty($filterView) ? '?view=' . urlencode($filterView) : '' ?>" class="glass-btn glass-btn-sm">Reset</a>
+        <a href="<?= BASE_URL ?>/tasks.php<?= !empty($filterView) ? '?view=' . urlencode($filterView) : '' ?>"
+          class="glass-btn glass-btn-sm">Reset</a>
       </div>
     </form>
   </div>
 
   <!-- Tasks Table -->
-  <div class="glass-panel">
+  <div class="glass-panel" style="padding:1rem;">
     <div class="glass-table-wrapper">
-      <table class="glass-table">
+      <table class="glass-table tasks-table">
         <thead>
           <tr>
-            <th>Ref</th>
-            <th>Task Title & Scope</th>
-            <th>Assigned To</th>
-            <th>Supervising Officer</th>
-            <th>Current Stage</th>
-            <th>Priority</th>
-            <th>Start Date</th>
-            <th>Due Date</th>
-            <th>SLA Status</th>
-            <th style="text-align:right;">Actions</th>
+            <th style="width:5%;">Ref</th>
+            <th style="width:24%;">Task Title & Scope</th>
+            <th style="width:13%;">Assigned To</th>
+            <th style="width:13%;">Supervising Officer</th>
+            <th style="width:10%;">Current Stage</th>
+            <th style="width:7%;">Priority</th>
+            <th style="width:11%;">Duration</th>
+            <th style="width:8%;">SLA Status</th>
+            <th style="width:9%;">Actions</th>
           </tr>
         </thead>
         <tbody>
           <?php if (empty($filteredTasks)): ?>
             <tr>
-              <td colspan="10" style="text-align:center;padding:3rem 1rem;color:var(--text-muted);">
+              <td colspan="9" style="text-align:center;padding:3rem 1rem;color:var(--text-muted);">
                 No matching tasks found.
               </td>
             </tr>
@@ -336,11 +350,12 @@ require_once __DIR__ . '/includes/header.php';
               <tr id="task-row-<?= $t['task_id'] ?>" data-task-id="<?= $t['task_id'] ?>">
                 <td><span style="font-weight:700;color:var(--text-muted);font-size:0.8rem;">#<?= $t['task_id'] ?></span>
                 </td>
-                <td>
-                  <strong style="color:#fff;"><?= htmlspecialchars($t['title']) ?></strong>
+                <td class="task-title-cell">
+                  <strong class="task-title-text" style="color:#fff;"
+                    title="<?= htmlspecialchars($t['title']) ?>"><?= htmlspecialchars($t['title']) ?></strong>
                   <?php if (!empty($t['description'])): ?>
-                    <p
-                      style="font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                    <p class="task-desc-text" style="font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;"
+                      title="<?= htmlspecialchars($t['description']) ?>">
                       <?= htmlspecialchars($t['description']) ?>
                     </p>
                   <?php endif; ?>
@@ -352,8 +367,9 @@ require_once __DIR__ . '/includes/header.php';
                       <?= htmlspecialchars($t['intern_role']) ?>
                     </small>
                   <?php endif; ?>
-                  <?php if ((int)$t['intern_id'] === $myUid): ?>
-                    <span class="glass-badge glass-badge-indigo" style="font-size:0.68rem;padding:0.1rem 0.4rem;display:inline-block;margin-top:0.2rem;">
+                  <?php if ((int) $t['intern_id'] === $myUid): ?>
+                    <span class="glass-badge glass-badge-indigo"
+                      style="font-size:0.68rem;padding:0.1rem 0.4rem;display:inline-block;margin-top:0.2rem;">
                       You (Assignee)
                     </span>
                   <?php endif; ?>
@@ -365,47 +381,54 @@ require_once __DIR__ . '/includes/header.php';
                       <?= htmlspecialchars($t['supervisor_role']) ?>
                     </small>
                   <?php endif; ?>
-                  <?php if ((int)$t['supervisor_id'] === $myUid): ?>
-                    <span class="glass-badge glass-badge-purple" style="font-size:0.68rem;padding:0.1rem 0.4rem;display:inline-block;margin-top:0.2rem;">
+                  <?php if ((int) $t['supervisor_id'] === $myUid): ?>
+                    <span class="glass-badge glass-badge-purple"
+                      style="font-size:0.68rem;padding:0.1rem 0.4rem;display:inline-block;margin-top:0.2rem;">
                       You (Supervisor)
                     </span>
                   <?php endif; ?>
                 </td>
                 <td><?= formatStageBadge($t['current_stage']) ?></td>
                 <td><?= formatPriorityBadge($t['priority']) ?></td>
-                <td><small><?= formatDisplayDate($t['start_date']) ?></small></td>
-                <td><small><?= formatDisplayDateTime($t['due_date']) ?></small></td>
+                <td style="white-space:nowrap;">
+                  <small
+                    title="Start: <?= htmlspecialchars(formatDisplayDate($t['start_date'])) ?> | Due: <?= htmlspecialchars(formatDisplayDateTime($t['due_date'])) ?>">
+                    <?= formatShortDate($t['start_date']) ?> - <?= formatShortDate($t['due_date']) ?>
+                  </small>
+                </td>
                 <td>
                   <span class="glass-badge <?= $t['sla']['badge_cls'] ?>">
                     <?= $t['sla']['label'] ?>
                   </span>
                 </td>
                 <td style="text-align:right;white-space:nowrap;">
-                  <button type="button" class="glass-btn glass-btn-sm" style="margin-right:0.25rem;" onclick="openStageModal(<?= htmlspecialchars(json_encode([
-                    'task_id' => $t['task_id'],
-                    'title' => $t['title'],
-                    'current_stage' => $t['current_stage'],
-                    'current_stage_badge' => formatStageBadge($t['current_stage']),
-                    'intern_id' => (int)$t['intern_id'],
-                    'supervisor_id' => (int)$t['supervisor_id']
-                  ]), ENT_QUOTES, 'UTF-8') ?>)">
-                    Update
-                  </button>
-                  <a href="<?= BASE_URL ?>/reports.php?task_id=<?= $t['task_id'] ?>" class="glass-btn glass-btn-sm"
-                    style="margin-right:0.25rem;" title="View Full Report">
-                    Report
-                  </a>
-                  <?php if (isAdmin()): ?>
-                    <button type="button" class="glass-btn glass-btn-sm glass-btn-danger"
-                      onclick="deleteTask(<?= $t['task_id'] ?>, '<?= htmlspecialchars(addslashes($t['title'])) ?>')"
-                      title="Permanently delete task and associated records">
-                      <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                      Delete
+                  <div class="action-btns-row">
+                    <button type="button" class="glass-btn glass-btn-sm" onclick="openStageModal(<?= htmlspecialchars(json_encode([
+                      'task_id' => $t['task_id'],
+                      'title' => $t['title'],
+                      'current_stage' => $t['current_stage'],
+                      'current_stage_badge' => formatStageBadge($t['current_stage']),
+                      'intern_id' => (int) $t['intern_id'],
+                      'supervisor_id' => (int) $t['supervisor_id']
+                    ]), ENT_QUOTES, 'UTF-8') ?>)">
+                      Update
                     </button>
-                  <?php endif; ?>
+                    <a href="<?= BASE_URL ?>/reports.php?task_id=<?= $t['task_id'] ?>" class="glass-btn glass-btn-sm"
+                      title="View Full Report">
+                      Report
+                    </a>
+                    <?php if (isAdmin()): ?>
+                      <button type="button" class="glass-btn glass-btn-sm glass-btn-danger"
+                        onclick="deleteTask(<?= $t['task_id'] ?>, '<?= htmlspecialchars(addslashes($t['title'])) ?>')"
+                        title="Permanently delete task and associated records">
+                        <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                        Delete
+                      </button>
+                    <?php endif; ?>
+                  </div>
                 </td>
               </tr>
             <?php endforeach; ?>
@@ -438,7 +461,8 @@ require_once __DIR__ . '/includes/header.php';
             <option value="">-- Select Assignee --</option>
             <?php foreach ($assignees as $as): ?>
               <option value="<?= $as['user_id'] ?>" data-supervisor-id="<?= $as['supervisor_id'] ?? '' ?>">
-                <?= htmlspecialchars($as['full_name']) ?> (<?= strtoupper($as['role']) ?> &bull; <?= htmlspecialchars($as['department'] ?: 'General') ?>)
+                <?= htmlspecialchars($as['full_name']) ?> (<?= strtoupper($as['role']) ?> &bull;
+                <?= htmlspecialchars($as['department'] ?: 'General') ?>)
               </option>
             <?php endforeach; ?>
           </select>
@@ -450,7 +474,8 @@ require_once __DIR__ . '/includes/header.php';
             <option value="">-- Auto-detect / Default to You --</option>
             <?php foreach ($supervisors as $sp): ?>
               <option value="<?= $sp['user_id'] ?>" <?= $sp['user_id'] === $myUid ? 'selected' : '' ?>>
-                <?= htmlspecialchars($sp['full_name']) ?> (<?= strtoupper($sp['role']) ?> &bull; <?= htmlspecialchars($sp['department'] ?: 'General') ?>)
+                <?= htmlspecialchars($sp['full_name']) ?> (<?= strtoupper($sp['role']) ?> &bull;
+                <?= htmlspecialchars($sp['department'] ?: 'General') ?>)
               </option>
             <?php endforeach; ?>
           </select>
